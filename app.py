@@ -96,6 +96,16 @@ DEMO_MODE = os.environ.get("DEMO_MODE", "1") == "1"  # For testing without Twili
 RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
 RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
 
+
+def get_razorpay_config() -> tuple[str, str]:
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(override=False)
+    except ImportError:
+        pass
+    return os.environ.get("RAZORPAY_KEY_ID", ""), os.environ.get("RAZORPAY_KEY_SECRET", "")
+
+
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PHONE_RE = re.compile(r"^\+?[0-9]{8,15}$")
 
@@ -724,6 +734,9 @@ def subscribe():
         db.execute("UPDATE users SET plan=? WHERE id=?", (plan, session["user_id"]))
         db.commit()
         return jsonify(ok=True, message=f"Subscribed to {plan}.")
+
+    global RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET
+    RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET = get_razorpay_config()
 
     if not RAZORPAY_KEY_ID or not RAZORPAY_KEY_SECRET or razorpay is None:
         return jsonify(ok=False, error="Razorpay is not configured yet."), 500
