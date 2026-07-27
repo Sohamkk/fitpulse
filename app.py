@@ -49,12 +49,35 @@ DB_PATH = os.environ.get("FITPULSE_DB_PATH", DEFAULT_DB_PATH)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
+
+def load_environment_file() -> None:
+    dotenv_path = os.path.join(BASE_DIR, ".env")
+    if not os.path.exists(dotenv_path):
+        return
+
+    with open(dotenv_path, "r", encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key:
+                os.environ[key] = value
+
+
+load_environment_file()
+
 try:
     from dotenv import load_dotenv
     load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"), override=False)
     load_dotenv(override=False)
 except ImportError:
     pass  # dotenv is optional; env vars can also be set directly
+
+
+load_environment_file()
 
 
 def ensure_user_columns():
@@ -97,8 +120,12 @@ DEMO_MODE = os.environ.get("DEMO_MODE", "1") == "1"  # For testing without Twili
 RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
 RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
 
+# Re-read the values after the local .env file has been loaded.
+RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET = get_razorpay_config() if 'get_razorpay_config' in globals() else (RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)
+
 
 def get_razorpay_config() -> tuple[str, str]:
+    load_environment_file()
     try:
         from dotenv import load_dotenv
         load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"), override=False)
