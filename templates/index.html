@@ -29,10 +29,6 @@
     <p class="subtext" style="margin:10px 0 30px;">Sign in to track workouts, calories, and progress across every device.</p>
 
     <div id="login-status" class="status-msg"></div>
-    <input id="identifier-input" class="field" type="tel" placeholder="Phone number" autocomplete="tel">
-    <button id="send-otp-btn" class="btn btn-primary">Send code</button>
-
-    <div class="auth-divider" style="margin:20px 0 12px; font-size:0.92rem; color:var(--muted);">Or use email and password</div>
     <input id="email-input" class="field" type="email" placeholder="Email address" autocomplete="email">
     <input id="password-input" class="field" type="password" placeholder="Password" autocomplete="current-password">
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
@@ -41,22 +37,6 @@
     </div>
 
     <p class="form-note center" style="margin-top:18px;">By continuing you agree to our Terms and Privacy Policy.</p>
-  </div>
-
-  <!-- OTP -->
-  <div id="screen-otp" class="screen">
-    <button class="link-btn" style="align-self:flex-start; margin-bottom:24px;" onclick="showScreen('screen-login')">← Back</button>
-    <div class="eyebrow">Verification</div>
-    <h2>Enter the code</h2>
-    <p class="subtext" style="margin:8px 0 26px;">We sent a 6-digit code to <span id="otp-target" class="mono" style="color:var(--text)"></span></p>
-    <div id="otp-status" class="status-msg"></div>
-    <div id="otp-boxes" class="otp-boxes">
-      <input maxlength="1" inputmode="numeric"><input maxlength="1" inputmode="numeric">
-      <input maxlength="1" inputmode="numeric"><input maxlength="1" inputmode="numeric">
-      <input maxlength="1" inputmode="numeric"><input maxlength="1" inputmode="numeric">
-    </div>
-    <button id="verify-otp-btn" class="btn btn-primary">Verify & continue</button>
-    <button id="resend-otp-btn" class="link-btn" style="margin-top:18px; align-self:center;" disabled>Resend code (30s)</button>
   </div>
 
   <!-- PROFILE SETUP -->

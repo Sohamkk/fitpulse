@@ -88,34 +88,10 @@ window.addEventListener("DOMContentLoaded", async () => {
 // ---------------------------------------------------------------------------
 // Auth: request + verify OTP
 // ---------------------------------------------------------------------------
-const identifierInput = document.getElementById("identifier-input");
-const sendOtpBtn = document.getElementById("send-otp-btn");
 const emailInput = document.getElementById("email-input");
 const passwordInput = document.getElementById("password-input");
 const loginEmailBtn = document.getElementById("login-email-btn");
 const registerEmailBtn = document.getElementById("register-email-btn");
-
-sendOtpBtn.addEventListener("click", async () => {
-  const identifier = identifierInput.value.trim();
-  if (!identifier) return flash("login-status", "Enter your phone number.");
-
-  sendOtpBtn.disabled = true;
-  sendOtpBtn.textContent = "Sending…";
-  const { data } = await api("/api/auth/request-otp", { method: "POST", body: { identifier } });
-  sendOtpBtn.disabled = false;
-  sendOtpBtn.textContent = "Send code";
-
-  if (!data.ok) {
-    flash("login-status", data.error || "Could not send code.");
-    return;
-  }
-  state.identifier = identifier;
-  document.getElementById("otp-target").textContent = identifier;
-  document.getElementById("login-status").className = "status-msg";
-  showScreen("screen-otp");
-  document.querySelector("#otp-boxes input").focus();
-  startResendCooldown();
-});
 
 loginEmailBtn.addEventListener("click", async () => {
   const email = emailInput.value.trim().toLowerCase();
@@ -162,55 +138,6 @@ registerEmailBtn.addEventListener("click", async () => {
     await enterApp();
   }
 });
-
-// OTP box auto-advance
-const otpInputs = [...document.querySelectorAll("#otp-boxes input")];
-otpInputs.forEach((box, i) => {
-  box.addEventListener("input", () => {
-    box.value = box.value.replace(/\D/g, "").slice(0, 1);
-    if (box.value && otpInputs[i + 1]) otpInputs[i + 1].focus();
-  });
-  box.addEventListener("keydown", (e) => {
-    if (e.key === "Backspace" && !box.value && otpInputs[i - 1]) otpInputs[i - 1].focus();
-  });
-});
-
-document.getElementById("verify-otp-btn").addEventListener("click", async () => {
-  const code = otpInputs.map((b) => b.value).join("");
-  if (code.length !== 6) return flash("otp-status", "Enter the 6-digit code.");
-
-  const { data } = await api("/api/auth/verify-otp", {
-    method: "POST",
-    body: { identifier: state.identifier, code },
-  });
-
-  if (!data.ok) return flash("otp-status", data.error || "Verification failed.");
-
-  state.user = data.user;
-  saveSession();
-  if (data.is_new_user) {
-    showScreen("screen-profile-setup");
-  } else {
-    await enterApp();
-  }
-});
-
-document.getElementById("resend-otp-btn").addEventListener("click", async () => {
-  await api("/api/auth/request-otp", { method: "POST", body: { identifier: state.identifier } });
-  flash("otp-status", "New code sent.", "success");
-  startResendCooldown();
-});
-
-function startResendCooldown() {
-  const btn = document.getElementById("resend-otp-btn");
-  let t = 30;
-  btn.disabled = true;
-  const iv = setInterval(() => {
-    t -= 1;
-    btn.textContent = t > 0 ? `Resend code (${t}s)` : "Resend code";
-    if (t <= 0) { clearInterval(iv); btn.disabled = false; }
-  }, 1000);
-}
 
 // ---------------------------------------------------------------------------
 // Profile setup
