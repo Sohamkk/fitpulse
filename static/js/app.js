@@ -18,11 +18,34 @@ const state = {
 // Session persistence with localStorage
 // ---------------------------------------------------------------------------
 function saveSession() {
+  const sessionData = {
+    user: state.user,
+    identifier: state.identifier,
+    email: state.identifier,
+    password: document.getElementById("password-input")?.value || ""
+  };
+  localStorage.setItem("fitpulse_session", JSON.stringify(sessionData));
   localStorage.setItem("fitpulse_user", JSON.stringify(state.user));
   localStorage.setItem("fitpulse_identifier", state.identifier);
 }
 
 function restoreSession() {
+  const savedSession = localStorage.getItem("fitpulse_session");
+  if (savedSession) {
+    const parsed = JSON.parse(savedSession);
+    if (parsed.user && parsed.identifier) {
+      state.user = parsed.user;
+      state.identifier = parsed.identifier;
+      if (parsed.email) {
+        document.getElementById("email-input").value = parsed.email;
+      }
+      if (parsed.password) {
+        document.getElementById("password-input").value = parsed.password;
+      }
+      return true;
+    }
+  }
+
   const savedUser = localStorage.getItem("fitpulse_user");
   const savedIdentifier = localStorage.getItem("fitpulse_identifier");
   if (savedUser && savedIdentifier) {
@@ -34,6 +57,7 @@ function restoreSession() {
 }
 
 function clearSession() {
+  localStorage.removeItem("fitpulse_session");
   localStorage.removeItem("fitpulse_user");
   localStorage.removeItem("fitpulse_identifier");
   state.user = null;
