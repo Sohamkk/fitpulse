@@ -31,7 +31,7 @@ from email.mime.text import MIMEText
 from datetime import datetime, timedelta
 
 from flask import Flask, request, jsonify, g, session
-from werkzeug.security import generate_password_hash
+from werkzeug.security import generate_password_hash, check_password_hash
 
 try:
     from dotenv import load_dotenv
@@ -48,6 +48,15 @@ DEFAULT_DB_PATH = "/tmp/fitpulse.db" if os.name != "nt" else os.path.join(BASE_D
 DB_PATH = os.environ.get("FITPULSE_DB_PATH", DEFAULT_DB_PATH)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
+
+
+def ensure_user_columns():
+    conn = sqlite3.connect(DB_PATH)
+    columns = [row[1] for row in conn.execute("PRAGMA table_info(users)")]
+    if "password_hash" not in columns:
+        conn.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+        conn.commit()
+    conn.close()
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", secrets.token_hex(32))
 
 @app.before_request
@@ -153,6 +162,7 @@ def init_db():
     )
     conn.commit()
     conn.close()
+    ensure_user_columns()
 
 
 # ---------------------------------------------------------------------------
@@ -308,6 +318,56 @@ def verify_otp():
 
     session["user_id"] = user["id"]
     return jsonify(ok=True, is_new_user=is_new, user=dict(user))
+
+
+@app.post("/api/auth/register")
+def register_user():
+    data = request.get_json(force=True, silent=True) or {}
+    email = (data.get("email") or "").strip().lower()
+    password = (data.get("password") or "").strip()
+    name = (data.get("name") or "").strip()
+
+    if not EMAIL_RE.match(email):
+        return jsonify(ok=False, error="Enter a valid email address."), 400
+    if len(password) < 6:
+        return jsonify(ok=False, error="Password must be at least 6 characters."), 400
+
+    db = get_db()
+    existing = db.execute("SELECT id FROM users WHERE identifier=?", (email,)).fetchone()
+    if existing:
+        return jsonify(ok=False, error="An account with this email already exists."), 409
+
+    password_hash = generate_password_hash(password)
+    db.execute(
+        "INSERT INTO users (identifier, identifier_type, name, password_hash) VALUES (?, 'email', ?, ?)",
+        (email, name or email.split("@", 1)[0], password_hash),
+    )
+    db.commit()
+    user = db.execute("SELECT * FROM users WHERE identifier=?", (email,)).fetchone()
+    session["user_id"] = user["id"]
+    return jsonify(ok=True, is_new_user=True, user=dict(user))
+
+
+@app.post("/api/auth/login")
+def login_user():
+    data = request.get_json(force=True, silent=True) or {}
+    email = (data.get("email") or "").strip().lower()
+    password = (data.get("password") or "").strip()
+
+    if not EMAIL_RE.match(email) or not password:
+        return jsonify(ok=False, error="Enter your email and password."), 400
+
+    db = get_db()
+    user = db.execute(
+        "SELECT * FROM users WHERE identifier=? AND identifier_type='email'",
+        (email,),
+    ).fetchone()
+
+    if not user or not user["password_hash"] or not check_password_hash(user["password_hash"], password):
+        return jsonify(ok=False, error="Email or password is incorrect."), 401
+
+    session["user_id"] = user["id"]
+    return jsonify(ok=True, is_new_user=False, user=dict(user))
 
 
 @app.post("/api/auth/google")

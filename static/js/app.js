@@ -79,30 +79,21 @@ function flash(elId, message, type = "error") {
 // ---------------------------------------------------------------------------
 window.addEventListener("DOMContentLoaded", async () => {
   if (restoreSession()) {
-    // User was logged in: skip splash and go directly to app
     await enterApp();
   } else {
-    // New session: show splash first, then fetch demo numbers
     setTimeout(() => showScreen("screen-login"), 1400);
-    loadDemoNumbers();
   }
 });
-
-async function loadDemoNumbers() {
-  const { data } = await api("/api/auth/demo-numbers");
-  if (data.ok && data.demo_numbers) {
-    const subtitle = document.querySelector(".subtext");
-    if (subtitle) {
-      subtitle.innerHTML += `<br><br><strong>Demo Mode:</strong> Use one of these test numbers:<br><code style="font-size:0.9em">${data.demo_numbers.join(", ")}</code><br><em>(Check browser console for OTP codes)</em>`;
-    }
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Auth: request + verify OTP
 // ---------------------------------------------------------------------------
 const identifierInput = document.getElementById("identifier-input");
 const sendOtpBtn = document.getElementById("send-otp-btn");
+const emailInput = document.getElementById("email-input");
+const passwordInput = document.getElementById("password-input");
+const loginEmailBtn = document.getElementById("login-email-btn");
+const registerEmailBtn = document.getElementById("register-email-btn");
 
 sendOtpBtn.addEventListener("click", async () => {
   const identifier = identifierInput.value.trim();
@@ -122,9 +113,54 @@ sendOtpBtn.addEventListener("click", async () => {
   document.getElementById("otp-target").textContent = identifier;
   document.getElementById("login-status").className = "status-msg";
   showScreen("screen-otp");
-  loadDemoCode();  // Show demo code if in demo mode
   document.querySelector("#otp-boxes input").focus();
   startResendCooldown();
+});
+
+loginEmailBtn.addEventListener("click", async () => {
+  const email = emailInput.value.trim().toLowerCase();
+  const password = passwordInput.value;
+  if (!email || !password) return flash("login-status", "Enter your email and password.");
+
+  loginEmailBtn.disabled = true;
+  loginEmailBtn.textContent = "Signing in…";
+  const { data } = await api("/api/auth/login", { method: "POST", body: { email, password } });
+  loginEmailBtn.disabled = false;
+  loginEmailBtn.textContent = "Sign in";
+
+  if (!data.ok) return flash("login-status", data.error || "Could not sign in.");
+
+  state.identifier = email;
+  state.user = data.user;
+  saveSession();
+  if (data.is_new_user) {
+    showScreen("screen-profile-setup");
+  } else {
+    await enterApp();
+  }
+});
+
+registerEmailBtn.addEventListener("click", async () => {
+  const email = emailInput.value.trim().toLowerCase();
+  const password = passwordInput.value;
+  if (!email || !password) return flash("login-status", "Enter your email and password.");
+
+  registerEmailBtn.disabled = true;
+  registerEmailBtn.textContent = "Creating…";
+  const { data } = await api("/api/auth/register", { method: "POST", body: { email, password, name: email.split("@", 1)[0] } });
+  registerEmailBtn.disabled = false;
+  registerEmailBtn.textContent = "Create account";
+
+  if (!data.ok) return flash("login-status", data.error || "Could not create account.");
+
+  state.identifier = email;
+  state.user = data.user;
+  saveSession();
+  if (data.is_new_user) {
+    showScreen("screen-profile-setup");
+  } else {
+    await enterApp();
+  }
 });
 
 // OTP box auto-advance
@@ -162,19 +198,8 @@ document.getElementById("verify-otp-btn").addEventListener("click", async () => 
 document.getElementById("resend-otp-btn").addEventListener("click", async () => {
   await api("/api/auth/request-otp", { method: "POST", body: { identifier: state.identifier } });
   flash("otp-status", "New code sent.", "success");
-  loadDemoCode();  // Reload demo code if in demo mode
   startResendCooldown();
 });
-
-async function loadDemoCode() {
-  const { data } = await api(`/api/auth/demo-code/${encodeURIComponent(state.identifier)}`);
-  if (data.ok && data.code) {
-    const debugMsg = document.getElementById("otp-status");
-    debugMsg.innerHTML = `<strong style="color:var(--volt)">Demo Code: ${data.code}</strong>`;
-    debugMsg.className = "status-msg show success";
-    console.log(`[DEMO] OTP Code for ${state.identifier}: ${data.code}`);
-  }
-}
 
 function startResendCooldown() {
   const btn = document.getElementById("resend-otp-btn");
