@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FitPulse — Train with intent</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+</head>
+<body>
+<div class="app-shell">
+
+  <!-- SPLASH -->
+  <div id="screen-splash" class="screen active screen-static">
+    <div class="splash">
+      <div class="splash-mark">FIT<span style="color:var(--volt)">PULSE</span></div>
+      <div class="splash-bar"></div>
+    </div>
+  </div>
+
+  <!-- LOGIN -->
+  <div id="screen-login" class="screen">
+    <div class="brandmark"><span class="dot"></span>FITPULSE</div>
+    <svg class="pulse-line" viewBox="0 0 400 64" preserveAspectRatio="none">
+      <path d="M0,32 L90,32 L110,10 L130,54 L150,32 L400,32" />
+    </svg>
+    <div class="eyebrow">Welcome</div>
+    <h1>Train with<br>intent.</h1>
+    <p class="subtext" style="margin:10px 0 30px;">Sign in to track workouts, calories, and progress across every device.</p>
+
+    <div id="login-status" class="status-msg"></div>
+    <input id="identifier-input" class="field" type="tel" placeholder="Phone number" autocomplete="tel">
+    <button id="send-otp-btn" class="btn btn-primary">Send code</button>
+    <p class="form-note center" style="margin-top:18px;">By continuing you agree to our Terms and Privacy Policy.</p>
+  </div>
+
+  <!-- OTP -->
+  <div id="screen-otp" class="screen">
+    <button class="link-btn" style="align-self:flex-start; margin-bottom:24px;" onclick="showScreen('screen-login')">← Back</button>
+    <div class="eyebrow">Verification</div>
+    <h2>Enter the code</h2>
+    <p class="subtext" style="margin:8px 0 26px;">We sent a 6-digit code to <span id="otp-target" class="mono" style="color:var(--text)"></span></p>
+    <div id="otp-status" class="status-msg"></div>
+    <div id="otp-boxes" class="otp-boxes">
+      <input maxlength="1" inputmode="numeric"><input maxlength="1" inputmode="numeric">
+      <input maxlength="1" inputmode="numeric"><input maxlength="1" inputmode="numeric">
+      <input maxlength="1" inputmode="numeric"><input maxlength="1" inputmode="numeric">
+    </div>
+    <button id="verify-otp-btn" class="btn btn-primary">Verify & continue</button>
+    <button id="resend-otp-btn" class="link-btn" style="margin-top:18px; align-self:center;" disabled>Resend code (30s)</button>
+  </div>
+
+  <!-- PROFILE SETUP -->
+  <div id="screen-profile-setup" class="screen">
+    <div class="eyebrow">Step 2 of 2</div>
+    <h2>Tell us about you</h2>
+    <p class="subtext" style="margin:8px 0 24px;">This tunes your calorie targets and exercise intensity.</p>
+    <div id="profile-status" class="status-msg"></div>
+
+    <input id="pf-name" class="field" type="text" placeholder="Your name">
+    <div class="gender-toggle">
+      <button data-gender="male" class="active">Male</button>
+      <button data-gender="female">Female</button>
+    </div>
+    <input id="pf-age" class="field" type="number" placeholder="Age" min="10" max="100">
+    <input id="pf-weight" class="field" type="number" placeholder="Weight (kg)" min="30" max="300">
+    <input id="pf-height" class="field" type="number" placeholder="Height (cm)" min="100" max="250">
+
+    <select id="pf-activity" class="field">
+      <option value="sedentary">Sedentary — little to no exercise</option>
+      <option value="light">Light — 1-3 days/week</option>
+      <option value="moderate" selected>Moderate — 3-5 days/week</option>
+      <option value="active">Active — 6-7 days/week</option>
+      <option value="athlete">Athlete — 2x/day</option>
+    </select>
+    <select id="pf-goal" class="field">
+      <option value="lose">Lose weight</option>
+      <option value="maintain" selected>Maintain weight</option>
+      <option value="gain">Build muscle</option>
+    </select>
+    <select id="pf-country" class="field">
+      <option value="US">United States (USD)</option>
+      <option value="IN" selected>India (INR)</option>
+      <option value="GB">United Kingdom (GBP)</option>
+      <option value="EU">Europe (EUR)</option>
+      <option value="AU">Australia (AUD)</option>
+      <option value="CA">Canada (CAD)</option>
+      <option value="BR">Brazil (BRL)</option>
+      <option value="NG">Nigeria (NGN)</option>
+      <option value="PH">Philippines (PHP)</option>
+      <option value="ZA">South Africa (ZAR)</option>
+    </select>
+
+    <button id="profile-save-btn" class="btn btn-primary" style="margin-top:8px;">Finish setup</button>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="screen-dashboard" class="screen">
+    <div class="topbar">
+      <div>
+        <div class="greeting-time" id="greet-time">Good morning</div>
+        <div class="greeting-name" id="greet-name-wrap">Welcome back, <span id="greet-name"></span></div>
+      </div>
+      <div class="avatar" id="avatar-initial">F</div>
+    </div>
+
+    <div class="stat-row">
+      <div class="stat-card accent">
+        <div class="stat-value"><span id="dash-target-cal">—</span></div>
+        <div class="stat-label">Daily kcal target</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value mono">0</div>
+        <div class="stat-label">Workouts today</div>
+      </div>
+    </div>
+
+    <div class="section-head">
+      <h3>Quick start</h3>
+      <span class="see-all" data-nav="screen-exercises">See all →</span>
+    </div>
+    <div id="dash-preview"></div>
+
+    <div class="section-head">
+      <h3>Trending now</h3>
+      <span class="see-all" data-nav="screen-search">Explore →</span>
+    </div>
+    <p class="subtext">Tap Explore to search live trends and every exercise.</p>
+  </div>
+
+  <!-- EXERCISES -->
+  <div id="screen-exercises" class="screen">
+    <div class="eyebrow">Library</div>
+    <h2>Exercises</h2>
+    <div class="category-scroll" id="category-chips" style="margin-top:18px;"></div>
+    <button id="start-category-btn" class="btn btn-primary" style="margin:18px 0;">Start full circuit</button>
+    <div id="exercise-list"></div>
+  </div>
+
+  <!-- TIMER -->
+  <div id="screen-timer" class="screen" style="align-items:center; padding-top:20px;">
+    <button class="link-btn" id="timer-exit-btn" style="align-self:flex-start;">← Exit</button>
+    <div class="timer-wrap">
+      <div class="timer-ring-container" id="timer-ring-container">
+        <svg viewBox="0 0 260 260">
+          <circle class="ring-bg" cx="130" cy="130" r="120"></circle>
+          <circle class="ring-progress" id="ring-progress" cx="130" cy="130" r="120"></circle>
+        </svg>
+        <div class="timer-center">
+          <div class="timer-value" id="timer-value">30</div>
+          <div class="timer-label" id="timer-label">Work</div>
+        </div>
+      </div>
+      <div class="timer-exercise-name" id="timer-exercise-name">Jumping Jacks</div>
+      <div class="timer-progress-dots" id="timer-dots"></div>
+      <div class="timer-controls">
+        <button class="timer-icon-btn" id="timer-pause-btn">⏸</button>
+        <button class="btn btn-primary" id="timer-skip-btn" style="flex:1;">Skip</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CALCULATOR -->
+  <div id="screen-calculator" class="screen">
+    <div class="eyebrow">Metabolism</div>
+    <h2>Your numbers</h2>
+    <div class="result-hero">
+      <div class="big-num mono" id="calc-target">—</div>
+      <div class="big-label">Calories / day for your goal</div>
+    </div>
+    <div class="stat-row">
+      <div class="stat-card"><div class="stat-value mono" id="calc-bmr">—</div><div class="stat-label">BMR</div></div>
+      <div class="stat-card"><div class="stat-value mono" id="calc-tdee">—</div><div class="stat-label">Maintenance (TDEE)</div></div>
+    </div>
+    <div class="stat-card" style="margin-top:12px;">
+      <div class="stat-value mono" id="calc-bmi">—</div>
+      <div class="stat-label">BMI</div>
+    </div>
+    <div class="section-head"><h3>Suggested macros</h3></div>
+    <div class="macro-row">
+      <div class="macro-card" style="--macro-color:#8B7BFF"><div class="macro-val" id="macro-protein">—</div><div class="macro-label">Protein</div></div>
+      <div class="macro-card" style="--macro-color:#C7F464"><div class="macro-val" id="macro-carbs">—</div><div class="macro-label">Carbs</div></div>
+      <div class="macro-card" style="--macro-color:#FF4D5E"><div class="macro-val" id="macro-fat">—</div><div class="macro-label">Fat</div></div>
+    </div>
+    <p class="subtext" style="margin-top:20px;">Based on the Mifflin-St Jeor equation using your profile. Update your profile anytime to recalculate.</p>
+  </div>
+
+  <!-- SEARCH / TRENDS -->
+  <div id="screen-search" class="screen">
+    <div class="eyebrow">Discover</div>
+    <h2>Search & trends</h2>
+    <input id="search-input" class="field" type="text" placeholder="Search exercises, e.g. squats" style="margin-top:16px;">
+    <div class="section-head"><h3>Trending</h3></div>
+    <div id="trend-results"></div>
+    <div class="section-head"><h3>Results</h3></div>
+    <div id="search-results"></div>
+  </div>
+
+  <!-- SUBSCRIPTION -->
+  <div id="screen-plans" class="screen">
+    <div class="eyebrow">Membership</div>
+    <h2>Choose your plan</h2>
+    <select id="plan-country-select" class="field country-select" style="margin-top:18px;">
+      <option value="US">United States — USD</option>
+      <option value="IN" selected>India — INR</option>
+      <option value="GB">United Kingdom — GBP</option>
+      <option value="EU">Europe — EUR</option>
+      <option value="AU">Australia — AUD</option>
+      <option value="CA">Canada — CAD</option>
+      <option value="BR">Brazil — BRL</option>
+      <option value="NG">Nigeria — NGN</option>
+      <option value="PH">Philippines — PHP</option>
+      <option value="ZA">South Africa — ZAR</option>
+    </select>
+    <div id="plan-status" class="status-msg"></div>
+    <div id="plans-list"></div>
+  </div>
+
+  <!-- PROFILE / SETTINGS -->
+  <div id="screen-account" class="screen">
+    <div class="eyebrow">Account</div>
+    <h2>Your profile</h2>
+    <p class="subtext" style="margin:18px 0;">Signed in as <span id="account-identifier" class="mono" style="color:var(--text)"></span></p>
+    <button class="btn btn-ghost" data-nav="screen-calculator">View my calorie plan</button>
+    <button class="btn btn-ghost" style="margin-top:10px;" data-nav="screen-plans">Manage subscription</button>
+    <button id="logout-btn" class="btn btn-ghost" style="margin-top:10px; color:var(--signal); border-color:rgba(255,77,94,0.3);">Log out</button>
+  </div>
+
+  <!-- BOTTOM NAV -->
+  <nav class="bottom-nav hidden" id="nav-bottom">
+    <button class="nav-item active" data-nav="screen-dashboard">
+      <svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg>Home
+    </button>
+    <button class="nav-item" data-nav="screen-exercises">
+      <svg viewBox="0 0 24 24"><path d="M6 12h12M4 8v8M20 8v8"/></svg>Train
+    </button>
+    <button class="nav-item" data-nav="screen-calculator">
+      <svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h4"/></svg>Calories
+    </button>
+    <button class="nav-item" data-nav="screen-search">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>Search
+    </button>
+    <button class="nav-item" data-nav="screen-account">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>Profile
+    </button>
+  </nav>
+
+</div>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
