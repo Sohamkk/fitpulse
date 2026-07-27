@@ -39,12 +39,6 @@ try:
 except ImportError:
     razorpay = None
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass  # dotenv is optional; env vars can also be set directly
-
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -54,6 +48,13 @@ DEFAULT_DB_PATH = "/tmp/fitpulse.db" if os.name != "nt" else os.path.join(BASE_D
 DB_PATH = os.environ.get("FITPULSE_DB_PATH", DEFAULT_DB_PATH)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"), override=False)
+    load_dotenv(override=False)
+except ImportError:
+    pass  # dotenv is optional; env vars can also be set directly
 
 
 def ensure_user_columns():
@@ -100,6 +101,7 @@ RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
 def get_razorpay_config() -> tuple[str, str]:
     try:
         from dotenv import load_dotenv
+        load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"), override=False)
         load_dotenv(override=False)
     except ImportError:
         pass
