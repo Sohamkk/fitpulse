@@ -27,11 +27,17 @@ import sqlite3
 import smtplib
 import hashlib
 import secrets
+import json
 from email.mime.text import MIMEText
 from datetime import datetime, timedelta
 
 from flask import Flask, request, jsonify, g, session
 from werkzeug.security import generate_password_hash, check_password_hash
+
+try:
+    import razorpay
+except ImportError:
+    razorpay = None
 
 try:
     from dotenv import load_dotenv
@@ -87,6 +93,8 @@ TWILIO_AUTH = os.environ.get("TWILIO_AUTH", "")
 TWILIO_FROM = os.environ.get("TWILIO_FROM", "")
 USE_TWILIO = os.environ.get("USE_TWILIO", "0") == "1"
 DEMO_MODE = os.environ.get("DEMO_MODE", "1") == "1"  # For testing without Twilio
+RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
+RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PHONE_RE = re.compile(r"^\+?[0-9]{8,15}$")
@@ -702,26 +710,33 @@ def get_plans():
 
 @app.post("/api/subscribe")
 def subscribe():
-    """
-    Records the chosen plan. Real payment capture needs a processor —
-    Stripe (cards, global) or Razorpay (strong in India/SEA) both have
-    generous free sandboxes to test with before going live.
-    """
     if "user_id" not in session:
         return jsonify(ok=False, error="Not logged in."), 401
+
     data = request.get_json(force=True, silent=True) or {}
     plan = data.get("plan", "free")
-    price = data.get("price", 0)
-    currency = data.get("currency", "USD")
+    amount = int(float(data.get("price", 0)) * 100)
+    currency = (data.get("currency") or "INR").upper()
 
-    db = get_db()
-    db.execute(
-        "INSERT INTO subscriptions (user_id, plan, price, currency) VALUES (?, ?, ?, ?)",
-        (session["user_id"], plan, price, currency),
-    )
-    db.execute("UPDATE users SET plan=? WHERE id=?", (plan, session["user_id"]))
-    db.commit()
-    return jsonify(ok=True, message=f"Subscribed to {plan}.")
+    if plan == "free":
+        db = get_db()
+        db.execute("INSERT INTO subscriptions (user_id, plan, price, currency) VALUES (?, ?, ?, ?)", (session["user_id"], plan, 0, currency))
+        db.execute("UPDATE users SET plan=? WHERE id=?", (plan, session["user_id"]))
+        db.commit()
+        return jsonify(ok=True, message=f"Subscribed to {plan}.")
+
+    if not RAZORPAY_KEY_ID or not RAZORPAY_KEY_SECRET or razorpay is None:
+        return jsonify(ok=False, error="Razorpay is not configured yet."), 500
+
+    client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+    order = client.order.create({
+        "amount": amount,
+        "currency": currency,
+        "receipt": f"fitpulse-{session['user_id']}-{int(time.time())}",
+        "notes": {"plan": plan, "user_id": str(session["user_id"])}
+    })
+
+    return jsonify(ok=True, order=order, razorpay_key_id=RAZORPAY_KEY_ID)
 
 
 # ---------------------------------------------------------------------------

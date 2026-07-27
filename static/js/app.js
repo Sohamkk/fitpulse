@@ -492,8 +492,33 @@ async function loadPlans() {
         ${p.id === "free" ? "Current plan" : "Choose " + p.name}
       </button>`;
     card.querySelector("button").addEventListener("click", async () => {
-      await api("/api/subscribe", { method: "POST", body: { plan: p.id, price: p.usd, currency: p.currency } });
-      flash("plan-status", `You're on ${p.name}. (Wire Stripe/Razorpay in app.py to actually charge cards.)`, "success");
+      if (p.id === "free") {
+        const { data: subData } = await api("/api/subscribe", { method: "POST", body: { plan: p.id, price: 0, currency: p.currency } });
+        if (subData.ok) flash("plan-status", `You're on ${p.name}.`, "success");
+        return;
+      }
+
+      const { data: subData } = await api("/api/subscribe", { method: "POST", body: { plan: p.id, price: p.usd, currency: p.currency } });
+      if (!subData.ok) {
+        flash("plan-status", subData.error || "Could not start checkout.", "error");
+        return;
+      }
+
+      const options = {
+        key: subData.razorpay_key_id,
+        amount: subData.order.amount,
+        currency: subData.order.currency,
+        name: "FitPulse",
+        description: `${p.name} subscription`,
+        order_id: subData.order.id,
+        handler: function () {
+          flash("plan-status", `Payment successful for ${p.name}.`, "success");
+        },
+        prefill: { email: state.user?.identifier || "" },
+        theme: { color: "#8B7BFF" }
+      };
+      const razorpay = new window.Razorpay(options);
+      razorpay.open();
     });
     wrap.appendChild(card);
   });
@@ -522,8 +547,33 @@ async function loadPlansForCountry(country) {
         ${p.id === "free" ? "Current plan" : "Choose " + p.name}
       </button>`;
     card.querySelector("button").addEventListener("click", async () => {
-      await api("/api/subscribe", { method: "POST", body: { plan: p.id, price: p.usd, currency: p.currency } });
-      flash("plan-status", `You're on ${p.name}. (Wire Stripe/Razorpay in app.py to actually charge cards.)`, "success");
+      if (p.id === "free") {
+        const { data: subData } = await api("/api/subscribe", { method: "POST", body: { plan: p.id, price: 0, currency: p.currency } });
+        if (subData.ok) flash("plan-status", `You're on ${p.name}.`, "success");
+        return;
+      }
+
+      const { data: subData } = await api("/api/subscribe", { method: "POST", body: { plan: p.id, price: p.usd, currency: p.currency } });
+      if (!subData.ok) {
+        flash("plan-status", subData.error || "Could not start checkout.", "error");
+        return;
+      }
+
+      const options = {
+        key: subData.razorpay_key_id,
+        amount: subData.order.amount,
+        currency: subData.order.currency,
+        name: "FitPulse",
+        description: `${p.name} subscription`,
+        order_id: subData.order.id,
+        handler: function () {
+          flash("plan-status", `Payment successful for ${p.name}.`, "success");
+        },
+        prefill: { email: state.user?.identifier || "" },
+        theme: { color: "#8B7BFF" }
+      };
+      const razorpay = new window.Razorpay(options);
+      razorpay.open();
     });
     wrap.appendChild(card);
   });
