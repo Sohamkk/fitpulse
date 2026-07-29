@@ -46,6 +46,19 @@ try:
 except ImportError:
     razorpay = None  # payments route will report this clearly instead of crashing
 
+# --- Database backend ---
+# Local dev / no DATABASE_URL set -> SQLite file (simple, zero setup).
+# DATABASE_URL set (e.g. Vercel's Neon Postgres integration) -> real Postgres,
+# which is REQUIRED for data to persist on Vercel: serverless functions have
+# a stateless, per-instance /tmp, so a SQLite file there can vanish or differ
+# between requests. See README for the 1-minute Vercel Storage setup.
+DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL")
+IS_POSTGRES = bool(DATABASE_URL)
+
+if IS_POSTGRES:
+    import psycopg2
+    import psycopg2.extras
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("fitpulse")
 
@@ -57,16 +70,21 @@ import tempfile
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Vercel's Python runtime deploys the app onto a read-only filesystem — the
-# only writable path is /tmp, and it isn't guaranteed to persist between
-# invocations (fine for testing, not for real user data — see README).
-# DB_PATH can also be overridden directly via an env var on any host.
+# Only used when IS_POSTGRES is False (local dev, or Vercel without a DB
+# attached yet). DB_PATH can be overridden directly via an env var on any host.
 if os.environ.get("DB_PATH"):
     DB_PATH = os.environ["DB_PATH"]
 elif os.environ.get("VERCEL"):
     DB_PATH = os.path.join(tempfile.gettempdir(), "fitpulse.db")
 else:
     DB_PATH = os.path.join(BASE_DIR, "fitpulse.db")
+
+
+def now_str() -> str:
+    """UTC timestamp as a plain string — stored identically whether the
+    row lives in SQLite or Postgres, so every existing strptime() call in
+    this file keeps working unchanged either way."""
+    return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", secrets.token_hex(32))
@@ -121,11 +139,37 @@ def handle_unexpected_error(e):
 # Database
 # ---------------------------------------------------------------------------
 
+class _DbAdapter:
+    """Lets every existing query in this file keep using '?' placeholders
+    and .execute(sql, params) -> cursor with .fetchone()/.fetchall(),
+    whether the underlying connection is sqlite3 or psycopg2."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, sql, params=()):
+        if IS_POSTGRES:
+            cur = self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute(sql.replace("?", "%s"), params)
+            return cur
+        return self._conn.execute(sql, params)
+
+    def commit(self):
+        self._conn.commit()
+
+    def close(self):
+        self._conn.close()
+
+
 def get_db():
     if "db" not in g:
-        g.db = sqlite3.connect(DB_PATH)
-        g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA foreign_keys = ON")
+        if IS_POSTGRES:
+            conn = psycopg2.connect(DATABASE_URL)
+        else:
+            conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON")
+        g.db = _DbAdapter(conn)
     return g.db
 
 
@@ -136,62 +180,118 @@ def close_db(exception=None):
         db.close()
 
 
+SCHEMA_POSTGRES = """
+    CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        identifier TEXT UNIQUE NOT NULL,
+        identifier_type TEXT NOT NULL,
+        name TEXT,
+        age INTEGER,
+        weight_kg REAL,
+        height_cm REAL,
+        gender TEXT,
+        activity_level TEXT DEFAULT 'moderate',
+        goal TEXT DEFAULT 'maintain',
+        country TEXT DEFAULT 'IN',
+        plan TEXT DEFAULT 'free',
+        password_hash TEXT,
+        created_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS otp_codes (
+        id SERIAL PRIMARY KEY,
+        identifier TEXT NOT NULL,
+        code_hash TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        attempts INTEGER DEFAULT 0,
+        verified INTEGER DEFAULT 0,
+        created_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS workout_log (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        exercise_name TEXT,
+        category TEXT,
+        duration_sec INTEGER,
+        calories REAL,
+        logged_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS subscriptions (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        plan TEXT NOT NULL,
+        price REAL,
+        currency TEXT,
+        started_at TEXT
+    );
+"""
+
+SCHEMA_SQLITE = """
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        identifier TEXT UNIQUE NOT NULL,       -- email or phone
+        identifier_type TEXT NOT NULL,         -- 'email' | 'phone'
+        name TEXT,
+        age INTEGER,
+        weight_kg REAL,
+        height_cm REAL,
+        gender TEXT,
+        activity_level TEXT DEFAULT 'moderate',
+        goal TEXT DEFAULT 'maintain',
+        country TEXT DEFAULT 'IN',
+        plan TEXT DEFAULT 'free',
+        password_hash TEXT,
+        created_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS otp_codes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        identifier TEXT NOT NULL,
+        code_hash TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        attempts INTEGER DEFAULT 0,
+        verified INTEGER DEFAULT 0,
+        created_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS workout_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        exercise_name TEXT,
+        category TEXT,
+        duration_sec INTEGER,
+        calories REAL,
+        logged_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS subscriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        plan TEXT NOT NULL,
+        price REAL,
+        currency TEXT,
+        started_at TEXT
+    );
+"""
+
+
 def init_db():
+    if IS_POSTGRES:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute(SCHEMA_POSTGRES)
+        conn.commit()
+        conn.close()
+        return
+
     conn = sqlite3.connect(DB_PATH)
-    conn.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            identifier TEXT UNIQUE NOT NULL,       -- email or phone
-            identifier_type TEXT NOT NULL,         -- 'email' | 'phone'
-            name TEXT,
-            age INTEGER,
-            weight_kg REAL,
-            height_cm REAL,
-            gender TEXT,
-            activity_level TEXT DEFAULT 'moderate',
-            goal TEXT DEFAULT 'maintain',
-            country TEXT DEFAULT 'IN',
-            plan TEXT DEFAULT 'free',
-            password_hash TEXT,
-            created_at TEXT DEFAULT (datetime('now'))
-        );
-
-        CREATE TABLE IF NOT EXISTS otp_codes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            identifier TEXT NOT NULL,
-            code_hash TEXT NOT NULL,
-            expires_at TEXT NOT NULL,
-            attempts INTEGER DEFAULT 0,
-            verified INTEGER DEFAULT 0,
-            created_at TEXT DEFAULT (datetime('now'))
-        );
-
-        CREATE TABLE IF NOT EXISTS workout_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL REFERENCES users(id),
-            exercise_name TEXT,
-            category TEXT,
-            duration_sec INTEGER,
-            calories REAL,
-            logged_at TEXT DEFAULT (datetime('now'))
-        );
-
-        CREATE TABLE IF NOT EXISTS subscriptions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL REFERENCES users(id),
-            plan TEXT NOT NULL,
-            price REAL,
-            currency TEXT,
-            started_at TEXT DEFAULT (datetime('now'))
-        );
-        """
-    )
+    conn.executescript(SCHEMA_SQLITE)
     try:
         conn.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
     except sqlite3.OperationalError:
         pass
-
     conn.commit()
     conn.close()
 
@@ -295,12 +395,19 @@ def register_user():
             (name, password_hash, existing["id"]),
         )
         user_id = existing["id"]
-    else:
-        db.execute(
-            "INSERT INTO users (identifier, identifier_type, name, password_hash) VALUES (?, 'email', ?, ?)",
-            (email, name, password_hash),
+    elif IS_POSTGRES:
+        cur = db.execute(
+            "INSERT INTO users (identifier, identifier_type, name, password_hash, created_at) "
+            "VALUES (?, 'email', ?, ?, ?) RETURNING id",
+            (email, name, password_hash, now_str()),
         )
-        user_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+        user_id = cur.fetchone()["id"]
+    else:
+        cur = db.execute(
+            "INSERT INTO users (identifier, identifier_type, name, password_hash, created_at) VALUES (?, 'email', ?, ?, ?)",
+            (email, name, password_hash, now_str()),
+        )
+        user_id = cur.lastrowid
 
     db.commit()
     user = db.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
@@ -362,8 +469,8 @@ def request_otp():
     expires_at = (datetime.utcnow() + timedelta(seconds=OTP_TTL_SECONDS)).strftime("%Y-%m-%d %H:%M:%S")
 
     db.execute(
-        "INSERT INTO otp_codes (identifier, code_hash, expires_at) VALUES (?, ?, ?)",
-        (identifier, code_hash, expires_at),
+        "INSERT INTO otp_codes (identifier, code_hash, expires_at, created_at) VALUES (?, ?, ?, ?)",
+        (identifier, code_hash, expires_at, now_str()),
     )
     db.commit()
 
@@ -413,8 +520,8 @@ def verify_otp():
     user = db.execute("SELECT * FROM users WHERE identifier=?", (identifier,)).fetchone()
     if not user:
         db.execute(
-            "INSERT INTO users (identifier, identifier_type) VALUES (?, ?)",
-            (identifier, id_type),
+            "INSERT INTO users (identifier, identifier_type, created_at) VALUES (?, ?, ?)",
+            (identifier, id_type, now_str()),
         )
         db.commit()
         user = db.execute("SELECT * FROM users WHERE identifier=?", (identifier,)).fetchone()
@@ -459,8 +566,8 @@ def google_signin():
     user = db.execute("SELECT * FROM users WHERE identifier=?", (email,)).fetchone()
     if not user:
         db.execute(
-            "INSERT INTO users (identifier, identifier_type, name) VALUES (?, 'email', ?)",
-            (email, info.get("name", "")),
+            "INSERT INTO users (identifier, identifier_type, name, created_at) VALUES (?, 'email', ?, ?)",
+            (email, info.get("name", ""), now_str()),
         )
         db.commit()
         user = db.execute("SELECT * FROM users WHERE identifier=?", (email,)).fetchone()
@@ -654,9 +761,9 @@ def log_workout():
 
     db = get_db()
     db.execute(
-        """INSERT INTO workout_log (user_id, exercise_name, category, duration_sec, calories)
-           VALUES (?, ?, ?, ?, ?)""",
-        (session["user_id"], data.get("exercise_name"), data.get("category"), duration_sec, calories),
+        """INSERT INTO workout_log (user_id, exercise_name, category, duration_sec, calories, logged_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (session["user_id"], data.get("exercise_name"), data.get("category"), duration_sec, calories, now_str()),
     )
     db.commit()
     return jsonify(ok=True, calories_burned=round(calories, 1))
@@ -746,8 +853,8 @@ def subscribe():
     # Free plan needs no payment — activate immediately.
     if plan == "free" or not price:
         db.execute(
-            "INSERT INTO subscriptions (user_id, plan, price, currency) VALUES (?, ?, ?, ?)",
-            (session["user_id"], plan, price, currency),
+            "INSERT INTO subscriptions (user_id, plan, price, currency, started_at) VALUES (?, ?, ?, ?, ?)",
+            (session["user_id"], plan, price, currency, now_str()),
         )
         db.execute("UPDATE users SET plan=? WHERE id=?", (plan, session["user_id"]))
         db.commit()
@@ -822,8 +929,8 @@ def verify_payment():
 
     db = get_db()
     db.execute(
-        "INSERT INTO subscriptions (user_id, plan, price, currency) VALUES (?, ?, ?, ?)",
-        (session["user_id"], plan, price, currency),
+        "INSERT INTO subscriptions (user_id, plan, price, currency, started_at) VALUES (?, ?, ?, ?, ?)",
+        (session["user_id"], plan, price, currency, now_str()),
     )
     db.execute("UPDATE users SET plan=? WHERE id=?", (plan, session["user_id"]))
     db.commit()
