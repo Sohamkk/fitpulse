@@ -976,6 +976,24 @@ def index():
     return render_template("index.html", google_client_id=os.environ.get("GOOGLE_CLIENT_ID", ""))
 
 
+@app.get("/api/debug-config")
+def debug_config():
+    """Safe to hit anytime — reports whether config is loaded, never the
+    actual secret values. Remove this route once things are working if
+    you'd rather not expose even this much on a public URL."""
+    return jsonify(
+        ok=True,
+        razorpay_package_installed=razorpay is not None,
+        razorpay_key_id_set=bool(RAZORPAY_KEY_ID),
+        razorpay_key_id_prefix=(RAZORPAY_KEY_ID[:8] + "…") if RAZORPAY_KEY_ID else None,
+        razorpay_key_secret_set=bool(RAZORPAY_KEY_SECRET),
+        database_backend="postgres" if IS_POSTGRES else "sqlite",
+        database_url_set=bool(DATABASE_URL),
+        flask_secret_key_is_default=not bool(os.environ.get("FLASK_SECRET_KEY")),
+        running_on_vercel=bool(os.environ.get("VERCEL")),
+    )
+
+
 init_db()  # idempotent (CREATE TABLE IF NOT EXISTS) — also runs when
            # Vercel imports this module, since /tmp starts empty each
            # cold start and the __main__ block below never executes there.
