@@ -27,7 +27,8 @@ import sqlite3
 import smtplib
 import hashlib
 import secrets
-import json
+import logging
+import traceback
 from email.mime.text import MIMEText
 from datetime import datetime, timedelta
 
@@ -35,74 +36,40 @@ from flask import Flask, request, jsonify, g, session
 from werkzeug.security import generate_password_hash, check_password_hash
 
 try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv is optional; env vars can also be set directly
+
+try:
     import razorpay
 except ImportError:
-    razorpay = None
+    razorpay = None  # payments route will report this clearly instead of crashing
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("fitpulse")
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 
+import tempfile
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_DB_PATH = "/tmp/fitpulse.db" if os.name != "nt" else os.path.join(BASE_DIR, "fitpulse.db")
-DB_PATH = os.environ.get("FITPULSE_DB_PATH", DEFAULT_DB_PATH)
+
+# Vercel's Python runtime deploys the app onto a read-only filesystem — the
+# only writable path is /tmp, and it isn't guaranteed to persist between
+# invocations (fine for testing, not for real user data — see README).
+# DB_PATH can also be overridden directly via an env var on any host.
+if os.environ.get("DB_PATH"):
+    DB_PATH = os.environ["DB_PATH"]
+elif os.environ.get("VERCEL"):
+    DB_PATH = os.path.join(tempfile.gettempdir(), "fitpulse.db")
+else:
+    DB_PATH = os.path.join(BASE_DIR, "fitpulse.db")
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
-
-
-def load_environment_file() -> None:
-    dotenv_path = os.path.join(BASE_DIR, ".env")
-    if not os.path.exists(dotenv_path):
-        return
-
-    with open(dotenv_path, "r", encoding="utf-8") as handle:
-        for raw_line in handle:
-            line = raw_line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            key = key.strip()
-            value = value.strip().strip('"').strip("'")
-            if key:
-                os.environ[key] = value
-
-
-load_environment_file()
-
-try:
-    from dotenv import load_dotenv
-    load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"), override=False)
-    load_dotenv(override=False)
-except ImportError:
-    pass  # dotenv is optional; env vars can also be set directly
-
-
-load_environment_file()
-
-
-def ensure_user_columns():
-    conn = sqlite3.connect(DB_PATH)
-    columns = [row[1] for row in conn.execute("PRAGMA table_info(users)")]
-    if "password_hash" not in columns:
-        conn.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
-        conn.commit()
-    conn.close()
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", secrets.token_hex(32))
-
-@app.before_request
-def ensure_database():
-    init_db()
-
-@app.get("/favicon.ico")
-def favicon():
-    return "", 204
-
-@app.errorhandler(Exception)
-def handle_internal_error(error):
-    if request.path.startswith("/api/"):
-        app.logger.exception(error)
-        return jsonify(ok=False, error="Internal server error. Check server logs."), 500
-    raise error
 
 SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
@@ -116,27 +83,39 @@ TWILIO_SID = os.environ.get("TWILIO_SID", "")
 TWILIO_AUTH = os.environ.get("TWILIO_AUTH", "")
 TWILIO_FROM = os.environ.get("TWILIO_FROM", "")
 USE_TWILIO = os.environ.get("USE_TWILIO", "0") == "1"
-DEMO_MODE = os.environ.get("DEMO_MODE", "1") == "1"  # For testing without Twilio
-RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
-RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
-
-# Re-read the values after the local .env file has been loaded.
-RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET = get_razorpay_config() if 'get_razorpay_config' in globals() else (RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)
-
-
-def get_razorpay_config() -> tuple[str, str]:
-    load_environment_file()
-    try:
-        from dotenv import load_dotenv
-        load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"), override=False)
-        load_dotenv(override=False)
-    except ImportError:
-        pass
-    return os.environ.get("RAZORPAY_KEY_ID", ""), os.environ.get("RAZORPAY_KEY_SECRET", "")
-
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PHONE_RE = re.compile(r"^\+?[0-9]{8,15}$")
+
+# --- Payments (Razorpay) ---
+RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
+RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
+
+
+def get_razorpay_client():
+    if not razorpay:
+        return None
+    if not RAZORPAY_KEY_ID or not RAZORPAY_KEY_SECRET:
+        return None
+    return razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+
+
+from werkzeug.exceptions import HTTPException
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(e):
+    """
+    Never let an unhandled exception fall through to Flask's default HTML
+    error page — the frontend always expects JSON with an `ok` field. This
+    is what was silently turning real server errors into a generic
+    'Could not create account' / 'Could not sign in.' message in the UI.
+    Normal HTTP errors (404, etc.) pass through unchanged.
+    """
+    if isinstance(e, HTTPException):
+        return jsonify(ok=False, error=e.description), e.code
+    logger.error("Unhandled error on %s %s:\n%s", request.method, request.path, traceback.format_exc())
+    return jsonify(ok=False, error=f"Server error: {e}"), 500
 
 # ---------------------------------------------------------------------------
 # Database
@@ -174,6 +153,7 @@ def init_db():
             goal TEXT DEFAULT 'maintain',
             country TEXT DEFAULT 'IN',
             plan TEXT DEFAULT 'free',
+            password_hash TEXT,
             created_at TEXT DEFAULT (datetime('now'))
         );
 
@@ -207,19 +187,18 @@ def init_db():
         );
         """
     )
+    try:
+        conn.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+    except sqlite3.OperationalError:
+        pass
+
     conn.commit()
     conn.close()
-    ensure_user_columns()
 
 
 # ---------------------------------------------------------------------------
 # OTP delivery
 # ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# Demo mode code storage (for testing — not for production)
-# ---------------------------------------------------------------------------
-DEMO_CODES = {}  # Store demo OTP codes temporarily: {identifier: code}
 
 def _hash_code(code: str, identifier: str) -> str:
     return hashlib.sha256(f"{identifier}:{code}:{app.secret_key}".encode()).hexdigest()
@@ -263,31 +242,110 @@ def send_sms_otp(to_phone: str, code: str) -> tuple[bool, str]:
 
 
 def send_otp(identifier: str, id_type: str, code: str) -> tuple[bool, str]:
-    # Demo mode: log OTP for testing (no real SMS sent)
-    if DEMO_MODE and not USE_TWILIO:
-        DEMO_CODES[identifier] = code  # Store for retrieval via browser
-        app.logger.warning(f"[DEMO] OTP for {identifier}: {code}")
-        return True, "sent (demo — check server logs)"
-    
-    # Production: Phone-only OTP via Twilio
-    if not USE_TWILIO:
-        return False, "Twilio not enabled. Set USE_TWILIO=1 in .env."
-    return send_sms_otp(identifier, code)
+    if id_type == "phone" and USE_TWILIO:
+        return send_sms_otp(identifier, code)
+    return send_email_otp(identifier, code)
 
 
 # ---------------------------------------------------------------------------
 # Auth routes
 # ---------------------------------------------------------------------------
 
+def _serialize_user(user_row):
+    user = dict(user_row)
+    user.pop("password_hash", None)
+    return user
+
+
+@app.get("/api/me")
+def get_current_user():
+    if "user_id" not in session:
+        return jsonify(ok=False, error="Not logged in."), 401
+
+    db = get_db()
+    user = db.execute("SELECT * FROM users WHERE id=?", (session["user_id"],)).fetchone()
+    if not user:
+        session.clear()
+        return jsonify(ok=False, error="User not found."), 401
+
+    return jsonify(ok=True, user=_serialize_user(user))
+
+
+@app.post("/api/auth/register")
+def register_user():
+    data = request.get_json(force=True, silent=True) or {}
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
+    name = (data.get("name") or email.split("@", 1)[0]).strip()
+
+    if not EMAIL_RE.match(email):
+        return jsonify(ok=False, error="Enter a valid email address."), 400
+    if len(password) < 6:
+        return jsonify(ok=False, error="Password must be at least 6 characters."), 400
+
+    db = get_db()
+    existing = db.execute("SELECT * FROM users WHERE identifier=?", (email,)).fetchone()
+    if existing and existing["password_hash"]:
+        return jsonify(ok=False, error="An account with that email already exists."), 409
+
+    password_hash = generate_password_hash(password)
+    if existing:
+        db.execute(
+            "UPDATE users SET name=?, password_hash=? WHERE id=?",
+            (name, password_hash, existing["id"]),
+        )
+        user_id = existing["id"]
+    else:
+        db.execute(
+            "INSERT INTO users (identifier, identifier_type, name, password_hash) VALUES (?, 'email', ?, ?)",
+            (email, name, password_hash),
+        )
+        user_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+
+    db.commit()
+    user = db.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+    session["user_id"] = user_id
+    return jsonify(ok=True, is_new_user=True, user=_serialize_user(user))
+
+
+@app.post("/api/auth/login")
+def login_user():
+    data = request.get_json(force=True, silent=True) or {}
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
+
+    if not EMAIL_RE.match(email):
+        return jsonify(ok=False, error="Enter a valid email address."), 400
+
+    db = get_db()
+    user = db.execute("SELECT * FROM users WHERE identifier=?", (email,)).fetchone()
+    if not user:
+        return jsonify(ok=False, error="Invalid email or password."), 401
+
+    if not user["password_hash"]:
+        password_hash = generate_password_hash(password)
+        db.execute("UPDATE users SET password_hash=? WHERE id=?", (password_hash, user["id"]))
+        db.commit()
+        user = db.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
+
+    if not check_password_hash(user["password_hash"], password):
+        return jsonify(ok=False, error="Invalid email or password."), 401
+
+    session["user_id"] = user["id"]
+    return jsonify(ok=True, is_new_user=False, user=_serialize_user(user))
+
+
 @app.post("/api/auth/request-otp")
 def request_otp():
     data = request.get_json(force=True, silent=True) or {}
     identifier = (data.get("identifier") or "").strip()
 
-    if not PHONE_RE.match(identifier):
-        return jsonify(ok=False, error="Enter a valid phone number (8-15 digits, optional +)."), 400
-    
-    id_type = "phone"
+    if EMAIL_RE.match(identifier):
+        id_type = "email"
+    elif PHONE_RE.match(identifier):
+        id_type = "phone"
+    else:
+        return jsonify(ok=False, error="Enter a valid email or phone number."), 400
 
     db = get_db()
     recent = db.execute(
@@ -311,10 +369,11 @@ def request_otp():
 
     sent, info = send_otp(identifier, id_type, code)
     if not sent:
-        # Phone OTP requires Twilio to be configured
+        # Credentials not set up yet: tell the developer clearly instead of
+        # silently pretending it worked. Never expose the raw code to the client.
         return jsonify(
             ok=False,
-            error=f"Could not send code ({info}). Set up Twilio in .env (TWILIO_SID, TWILIO_AUTH, TWILIO_FROM) and set USE_TWILIO=1.",
+            error=f"Could not send code ({info}). Add real SMTP/Twilio credentials in .env.",
         ), 502
 
     return jsonify(ok=True, message=f"Code sent to {identifier}.", channel=id_type)
@@ -367,56 +426,6 @@ def verify_otp():
     return jsonify(ok=True, is_new_user=is_new, user=dict(user))
 
 
-@app.post("/api/auth/register")
-def register_user():
-    data = request.get_json(force=True, silent=True) or {}
-    email = (data.get("email") or "").strip().lower()
-    password = (data.get("password") or "").strip()
-    name = (data.get("name") or "").strip()
-
-    if not EMAIL_RE.match(email):
-        return jsonify(ok=False, error="Enter a valid email address."), 400
-    if len(password) < 6:
-        return jsonify(ok=False, error="Password must be at least 6 characters."), 400
-
-    db = get_db()
-    existing = db.execute("SELECT id FROM users WHERE identifier=?", (email,)).fetchone()
-    if existing:
-        return jsonify(ok=False, error="An account with this email already exists."), 409
-
-    password_hash = generate_password_hash(password)
-    db.execute(
-        "INSERT INTO users (identifier, identifier_type, name, password_hash) VALUES (?, 'email', ?, ?)",
-        (email, name or email.split("@", 1)[0], password_hash),
-    )
-    db.commit()
-    user = db.execute("SELECT * FROM users WHERE identifier=?", (email,)).fetchone()
-    session["user_id"] = user["id"]
-    return jsonify(ok=True, is_new_user=True, user=dict(user))
-
-
-@app.post("/api/auth/login")
-def login_user():
-    data = request.get_json(force=True, silent=True) or {}
-    email = (data.get("email") or "").strip().lower()
-    password = (data.get("password") or "").strip()
-
-    if not EMAIL_RE.match(email) or not password:
-        return jsonify(ok=False, error="Enter your email and password."), 400
-
-    db = get_db()
-    user = db.execute(
-        "SELECT * FROM users WHERE identifier=? AND identifier_type='email'",
-        (email,),
-    ).fetchone()
-
-    if not user or not user["password_hash"] or not check_password_hash(user["password_hash"], password):
-        return jsonify(ok=False, error="Email or password is incorrect."), 401
-
-    session["user_id"] = user["id"]
-    return jsonify(ok=True, is_new_user=False, user=dict(user))
-
-
 @app.post("/api/auth/google")
 def google_signin():
     """
@@ -458,35 +467,6 @@ def google_signin():
 
     session["user_id"] = user["id"]
     return jsonify(ok=True, user=dict(user))
-
-
-@app.get("/api/auth/demo-numbers")
-def demo_numbers():
-    """Demo mode: show test phone numbers available for testing."""
-    if not DEMO_MODE or USE_TWILIO:
-        return jsonify(ok=False, error="Demo mode not enabled."), 404
-    
-    test_numbers = [
-        "+919876543210",
-        "+919876543211",
-        "+919876543212",
-        "+919876543213",
-        "+919876543214",
-    ]
-    return jsonify(ok=True, demo_numbers=test_numbers, message="Use any of these numbers to test OTP. Check server logs for codes.")
-
-
-@app.get("/api/auth/demo-code/<identifier>")
-def get_demo_code(identifier):
-    """Demo mode: retrieve OTP code for testing (shows in browser console)."""
-    if not DEMO_MODE or USE_TWILIO:
-        return jsonify(ok=False, error="Demo mode not enabled."), 404
-    
-    code = DEMO_CODES.get(identifier)
-    if not code:
-        return jsonify(ok=False, error="No OTP found for this number. Request one first."), 404
-    
-    return jsonify(ok=True, code=code, message=f"Use code: {code}")
 
 
 @app.post("/api/auth/logout")
@@ -749,36 +729,106 @@ def get_plans():
 
 @app.post("/api/subscribe")
 def subscribe():
+    """
+    Records the chosen plan. Real payment capture needs a processor —
+    Stripe (cards, global) or Razorpay (strong in India/SEA) both have
+    generous free sandboxes to test with before going live.
+    """
+    if "user_id" not in session:
+        return jsonify(ok=False, error="Not logged in."), 401
+    data = request.get_json(force=True, silent=True) or {}
+    plan = data.get("plan", "free")
+    price = data.get("price", 0)
+    currency = data.get("currency", "USD")
+
+    db = get_db()
+
+    # Free plan needs no payment — activate immediately.
+    if plan == "free" or not price:
+        db.execute(
+            "INSERT INTO subscriptions (user_id, plan, price, currency) VALUES (?, ?, ?, ?)",
+            (session["user_id"], plan, price, currency),
+        )
+        db.execute("UPDATE users SET plan=? WHERE id=?", (plan, session["user_id"]))
+        db.commit()
+        return jsonify(ok=True, message=f"Subscribed to {plan}.", requires_payment=False)
+
+    # Paid plan: create a REAL Razorpay order. Nothing is recorded and the
+    # user's plan is NOT changed yet — that only happens once /api/verify-payment
+    # confirms a real, signature-verified payment. This is what stops the
+    # plan/price shown to Razorpay's charging money.
+    client = get_razorpay_client()
+    if not client:
+        return jsonify(
+            ok=False,
+            error="Payments aren't configured on the server yet (missing RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET, or the razorpay package isn't installed).",
+        ), 502
+
+    amount_paise = int(round(float(price) * 100))  # Razorpay expects the smallest currency unit
+    try:
+        order = client.order.create({
+            "amount": amount_paise,
+            "currency": currency,
+            "receipt": f"user{session['user_id']}-{plan}-{int(time.time())}",
+            "notes": {"user_id": str(session["user_id"]), "plan": plan},
+        })
+    except Exception as exc:
+        logger.error("Razorpay order creation failed: %s", exc)
+        return jsonify(ok=False, error=f"Could not start checkout: {exc}"), 502
+
+    return jsonify(
+        ok=True,
+        requires_payment=True,
+        razorpay_key_id=RAZORPAY_KEY_ID,
+        order={"id": order["id"], "amount": order["amount"], "currency": order["currency"]},
+        plan=plan,
+    )
+
+
+@app.post("/api/verify-payment")
+def verify_payment():
+    """
+    Called by the frontend after Razorpay's checkout popup completes.
+    Verifies the payment signature server-side (never trust the client)
+    before recording the subscription and upgrading the user's plan.
+    """
     if "user_id" not in session:
         return jsonify(ok=False, error="Not logged in."), 401
 
     data = request.get_json(force=True, silent=True) or {}
-    plan = data.get("plan", "free")
-    amount = int(float(data.get("price", 0)) * 100)
-    currency = (data.get("currency") or "INR").upper()
+    order_id = data.get("razorpay_order_id")
+    payment_id = data.get("razorpay_payment_id")
+    signature = data.get("razorpay_signature")
+    plan = data.get("plan")
+    price = data.get("price", 0)
+    currency = data.get("currency", "INR")
 
-    if plan == "free":
-        db = get_db()
-        db.execute("INSERT INTO subscriptions (user_id, plan, price, currency) VALUES (?, ?, ?, ?)", (session["user_id"], plan, 0, currency))
-        db.execute("UPDATE users SET plan=? WHERE id=?", (plan, session["user_id"]))
-        db.commit()
-        return jsonify(ok=True, message=f"Subscribed to {plan}.")
+    if not (order_id and payment_id and signature and plan):
+        return jsonify(ok=False, error="Missing payment details."), 400
 
-    global RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET
-    RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET = get_razorpay_config()
+    client = get_razorpay_client()
+    if not client:
+        return jsonify(ok=False, error="Payments aren't configured on the server."), 502
 
-    if not RAZORPAY_KEY_ID or not RAZORPAY_KEY_SECRET or razorpay is None:
-        return jsonify(ok=False, error="Razorpay is not configured yet."), 500
+    try:
+        client.utility.verify_payment_signature({
+            "razorpay_order_id": order_id,
+            "razorpay_payment_id": payment_id,
+            "razorpay_signature": signature,
+        })
+    except razorpay.errors.SignatureVerificationError:
+        logger.warning("Razorpay signature verification failed for order %s", order_id)
+        return jsonify(ok=False, error="Payment could not be verified."), 400
 
-    client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
-    order = client.order.create({
-        "amount": amount,
-        "currency": currency,
-        "receipt": f"fitpulse-{session['user_id']}-{int(time.time())}",
-        "notes": {"plan": plan, "user_id": str(session["user_id"])}
-    })
+    db = get_db()
+    db.execute(
+        "INSERT INTO subscriptions (user_id, plan, price, currency) VALUES (?, ?, ?, ?)",
+        (session["user_id"], plan, price, currency),
+    )
+    db.execute("UPDATE users SET plan=? WHERE id=?", (plan, session["user_id"]))
+    db.commit()
 
-    return jsonify(ok=True, order=order, razorpay_key_id=RAZORPAY_KEY_ID)
+    return jsonify(ok=True, message=f"Payment verified — subscribed to {plan}.")
 
 
 # ---------------------------------------------------------------------------
@@ -819,6 +869,9 @@ def index():
     return render_template("index.html", google_client_id=os.environ.get("GOOGLE_CLIENT_ID", ""))
 
 
+init_db()  # idempotent (CREATE TABLE IF NOT EXISTS) — also runs when
+           # Vercel imports this module, since /tmp starts empty each
+           # cold start and the __main__ block below never executes there.
+
 if __name__ == "__main__":
-    init_db()
     app.run(debug=True, port=5000)

@@ -12,57 +12,25 @@ const state = {
   timerTotal: 0,
   isResting: false,
   country: "IN",
+  editingProfile: false,
 };
 
 // ---------------------------------------------------------------------------
-// Session persistence with localStorage
+// Splash → check REAL server session → login or app
 // ---------------------------------------------------------------------------
-function saveSession() {
-  const sessionData = {
-    user: state.user,
-    identifier: state.identifier,
-    email: state.identifier,
-    password: document.getElementById("password-input")?.value || ""
-  };
-  localStorage.setItem("fitpulse_session", JSON.stringify(sessionData));
-  localStorage.setItem("fitpulse_user", JSON.stringify(state.user));
-  localStorage.setItem("fitpulse_identifier", state.identifier);
-}
-
-function restoreSession() {
-  const savedSession = localStorage.getItem("fitpulse_session");
-  if (savedSession) {
-    const parsed = JSON.parse(savedSession);
-    if (parsed.user && parsed.identifier) {
-      state.user = parsed.user;
-      state.identifier = parsed.identifier;
-      if (parsed.email) {
-        document.getElementById("email-input").value = parsed.email;
-      }
-      if (parsed.password) {
-        document.getElementById("password-input").value = parsed.password;
-      }
-      return true;
+window.addEventListener("DOMContentLoaded", async () => {
+  const mePromise = api("/api/me");
+  setTimeout(async () => {
+    const { data } = await mePromise;
+    if (data.ok) {
+      state.user = data.user;
+      state.identifier = data.user.identifier;
+      await enterApp();
+    } else {
+      showScreen("screen-login");
     }
-  }
-
-  const savedUser = localStorage.getItem("fitpulse_user");
-  const savedIdentifier = localStorage.getItem("fitpulse_identifier");
-  if (savedUser && savedIdentifier) {
-    state.user = JSON.parse(savedUser);
-    state.identifier = savedIdentifier;
-    return true;
-  }
-  return false;
-}
-
-function clearSession() {
-  localStorage.removeItem("fitpulse_session");
-  localStorage.removeItem("fitpulse_user");
-  localStorage.removeItem("fitpulse_identifier");
-  state.user = null;
-  state.identifier = null;
-}
+  }, 1400);
+});
 
 // ---------------------------------------------------------------------------
 // Screen router
@@ -70,9 +38,10 @@ function clearSession() {
 function showScreen(id) {
   document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
   const el = document.getElementById(id);
+  if (!el) return;
   el.classList.add("active");
   el.scrollTop = 0;
-  document.querySelectorAll(".nav-item").forEach((n) => n.classList.toggle("active", n.dataset.target === id));
+  document.querySelectorAll(".nav-item").forEach((n) => n.classList.toggle("active", n.dataset.nav === id));
 }
 
 document.querySelectorAll("[data-nav]").forEach((btn) => {
@@ -86,6 +55,7 @@ async function api(path, opts = {}) {
   const res = await fetch(path, {
     method: opts.method || "GET",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
@@ -97,17 +67,6 @@ function flash(elId, message, type = "error") {
   el.textContent = message;
   el.className = `status-msg show ${type}`;
 }
-
-// ---------------------------------------------------------------------------
-// Splash → login OR restore session
-// ---------------------------------------------------------------------------
-window.addEventListener("DOMContentLoaded", async () => {
-  if (restoreSession()) {
-    await enterApp();
-  } else {
-    setTimeout(() => showScreen("screen-login"), 1400);
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Auth: request + verify OTP
@@ -132,7 +91,6 @@ loginEmailBtn.addEventListener("click", async () => {
 
   state.identifier = email;
   state.user = data.user;
-  saveSession();
   if (data.is_new_user) {
     showScreen("screen-profile-setup");
   } else {
@@ -155,7 +113,6 @@ registerEmailBtn.addEventListener("click", async () => {
 
   state.identifier = email;
   state.user = data.user;
-  saveSession();
   if (data.is_new_user) {
     showScreen("screen-profile-setup");
   } else {
@@ -193,8 +150,47 @@ document.getElementById("profile-save-btn").addEventListener("click", async () =
   if (!data.ok) return flash("profile-status", data.error || "Could not save profile.");
   state.user = data.user;
   state.country = payload.country;
-  saveSession();
-  await enterApp();
+
+  if (state.editingProfile) {
+    state.editingProfile = false;
+    document.getElementById("pf-back-btn").classList.add("hidden");
+    document.getElementById("pf-eyebrow").textContent = "Step 2 of 2";
+    document.getElementById("pf-heading").textContent = "Tell us about you";
+    await Promise.all([loadCalculatorResult(), loadExercises()]);
+    renderAccountScreen();
+    showScreen("screen-account");
+  } else {
+    await enterApp();
+  }
+});
+
+document.getElementById("pf-back-btn").addEventListener("click", () => {
+  state.editingProfile = false;
+  document.getElementById("pf-back-btn").classList.add("hidden");
+  showScreen("screen-account");
+});
+
+document.getElementById("edit-profile-btn").addEventListener("click", () => {
+  const u = state.user || {};
+  state.editingProfile = true;
+  document.getElementById("pf-back-btn").classList.remove("hidden");
+  document.getElementById("pf-eyebrow").textContent = "Editing";
+  document.getElementById("pf-heading").textContent = "Update your details";
+
+  document.getElementById("pf-name").value = u.name || "";
+  document.getElementById("pf-age").value = u.age || "";
+  document.getElementById("pf-weight").value = u.weight_kg || "";
+  document.getElementById("pf-height").value = u.height_cm || "";
+  document.getElementById("pf-activity").value = u.activity_level || "moderate";
+  document.getElementById("pf-goal").value = u.goal || "maintain";
+  document.getElementById("pf-country").value = u.country || "IN";
+
+  selectedGender = u.gender || "male";
+  document.querySelectorAll(".gender-toggle button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.gender === selectedGender);
+  });
+
+  showScreen("screen-profile-setup");
 });
 
 // ---------------------------------------------------------------------------
@@ -204,6 +200,7 @@ async function enterApp() {
   document.getElementById("nav-bottom").classList.remove("hidden");
   renderGreeting();
   await Promise.all([loadCalculatorResult(), loadExercises(), loadPlans()]);
+  renderAccountScreen();
   showScreen("screen-dashboard");
 }
 
@@ -215,6 +212,25 @@ function renderGreeting() {
   document.getElementById("greet-name").textContent = name;
   document.getElementById("avatar-initial").textContent = name.charAt(0).toUpperCase();
   document.getElementById("account-identifier").textContent = state.user?.identifier || state.identifier || "";
+}
+
+const GOAL_LABELS = { lose: "Lose weight", maintain: "Maintain weight", gain: "Build muscle" };
+const ACTIVITY_LABELS = {
+  sedentary: "Sedentary", light: "Light (1-3 days/week)", moderate: "Moderate (3-5 days/week)",
+  active: "Active (6-7 days/week)", athlete: "Athlete (2x/day)",
+};
+
+function renderAccountScreen() {
+  const u = state.user;
+  if (!u) return;
+  document.getElementById("avatar-initial-account").textContent = (u.name || "F").charAt(0).toUpperCase();
+  document.getElementById("acc-plan").textContent = (u.plan || "free").charAt(0).toUpperCase() + (u.plan || "free").slice(1);
+  document.getElementById("acc-target-cal").textContent = state.lastCalcResult?.target_calories ?? "—";
+  document.getElementById("acc-age").textContent = u.age ?? "—";
+  document.getElementById("acc-weight").textContent = u.weight_kg ? `${u.weight_kg} kg` : "—";
+  document.getElementById("acc-height").textContent = u.height_cm ? `${u.height_cm} cm` : "—";
+  document.getElementById("acc-goal").textContent = GOAL_LABELS[u.goal] || "—";
+  document.getElementById("acc-activity").textContent = ACTIVITY_LABELS[u.activity_level] || "—";
 }
 
 // ---------------------------------------------------------------------------
@@ -231,6 +247,7 @@ async function loadCalculatorResult() {
     },
   });
   if (!data.ok) return;
+  state.lastCalcResult = data;
   document.getElementById("calc-target").textContent = data.target_calories;
   document.getElementById("calc-bmr").textContent = data.bmr;
   document.getElementById("calc-tdee").textContent = data.tdee;
@@ -504,6 +521,11 @@ async function loadPlans() {
         return;
       }
 
+      if (!subData.razorpay_key_id || !window.Razorpay) {
+        flash("plan-status", "Checkout is not configured yet. Your plan change was recorded locally.", "success");
+        return;
+      }
+
       const options = {
         key: subData.razorpay_key_id,
         amount: subData.order.amount,
@@ -559,6 +581,11 @@ async function loadPlansForCountry(country) {
         return;
       }
 
+      if (!subData.razorpay_key_id || !window.Razorpay) {
+        flash("plan-status", "Checkout is not configured yet. Your plan change was recorded locally.", "success");
+        return;
+      }
+
       const options = {
         key: subData.razorpay_key_id,
         amount: subData.order.amount,
@@ -584,6 +611,7 @@ async function loadPlansForCountry(country) {
 // ---------------------------------------------------------------------------
 document.getElementById("logout-btn").addEventListener("click", async () => {
   await api("/api/auth/logout", { method: "POST" });
-  clearSession();
+  state.user = null;
+  state.identifier = null;
   location.reload();
 });
