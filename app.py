@@ -843,9 +843,25 @@ EXERCISES = {
 }
 
 
+def current_user_plan():
+    if "user_id" not in session:
+        return "free"
+    row = get_db().execute("SELECT plan FROM users WHERE id=?", (session["user_id"],)).fetchone()
+    return row["plan"] if row else "free"
+
+
 @app.get("/api/exercises")
 def get_exercises():
-    return jsonify(ok=True, categories=EXERCISES)
+    if current_user_plan() != "free":
+        return jsonify(ok=True, categories=EXERCISES)
+
+    categories = {}
+    for key, cat in EXERCISES.items():
+        if key in FREE_CATEGORIES:
+            categories[key] = cat
+        else:
+            categories[key] = {**cat, "items": [], "locked": True}
+    return jsonify(ok=True, categories=categories)
 
 
 @app.post("/api/log-workout")
@@ -855,6 +871,10 @@ def log_workout():
     data = request.get_json(force=True, silent=True) or {}
     user = get_db().execute("SELECT * FROM users WHERE id=?", (session["user_id"],)).fetchone()
     weight = user["weight_kg"] or 70
+
+    category = data.get("category")
+    if current_user_plan() == "free" and category not in FREE_CATEGORIES:
+        return jsonify(ok=False, error="This workout category needs Premium or Pro.", upgrade_required=True), 403
 
     met = float(data.get("met", 5))
     duration_sec = int(data.get("duration_sec", 0))
@@ -905,7 +925,7 @@ FOOD_DATABASE = {
         ],
     },
     "legumes": {
-        "label": "Legumes & Veg Protein",
+        "label": "Legumes",
         "items": [
             {"name": "Dal / Lentils (cooked)", "serving": "1 cup", "calories": 230, "protein_g": 18, "carbs_g": 40, "fat_g": 0.8},
             {"name": "Chickpeas / Chana (cooked)", "serving": "1 cup", "calories": 270, "protein_g": 15, "carbs_g": 45, "fat_g": 4.2},
@@ -948,7 +968,7 @@ FOOD_DATABASE = {
         ],
     },
     "non_veg": {
-        "label": "Non-Vegetarian",
+        "label": "Non-Veg",
         "items": [
             {"name": "Chicken Breast (cooked)", "serving": "100 g", "calories": 165, "protein_g": 31, "carbs_g": 0, "fat_g": 3.6},
             {"name": "Chicken Thigh (cooked)", "serving": "100 g", "calories": 209, "protein_g": 26, "carbs_g": 0, "fat_g": 11},
@@ -963,7 +983,7 @@ FOOD_DATABASE = {
         ],
     },
     "protein_supplements": {
-        "label": "Protein Shakes & Supplements",
+        "label": "Protein & Supps",
         "items": [
             {"name": "Whey Protein Shake", "serving": "1 scoop", "calories": 120, "protein_g": 24, "carbs_g": 3, "fat_g": 1.5},
             {"name": "Whey Protein Isolate", "serving": "1 scoop", "calories": 110, "protein_g": 25, "carbs_g": 1.5, "fat_g": 0.5},
@@ -981,7 +1001,7 @@ FOOD_DATABASE = {
         ],
     },
     "snacks_beverages": {
-        "label": "Snacks & Beverages",
+        "label": "Snacks",
         "items": [
             {"name": "Black Coffee", "serving": "1 cup", "calories": 2, "protein_g": 0.3, "carbs_g": 0, "fat_g": 0},
             {"name": "Tea with Milk", "serving": "1 cup", "calories": 40, "protein_g": 1.0, "carbs_g": 5.0, "fat_g": 1.5},
@@ -1003,37 +1023,62 @@ FOOD_DATABASE = {
 
 @app.get("/api/foods")
 def get_foods():
-    return jsonify(ok=True, categories=FOOD_DATABASE)
+    if current_user_plan() != "free":
+        return jsonify(ok=True, categories=FOOD_DATABASE, locked=False)
+    locked = {key: {**cat, "items": [], "locked": True} for key, cat in FOOD_DATABASE.items()}
+    return jsonify(ok=True, categories=locked, locked=True)
+
+
+KNOWN_FOODS = {
+    item["name"].strip().lower(): item
+    for cat in FOOD_DATABASE.values()
+    for item in cat["items"]
+}
 
 
 @app.post("/api/log-food")
 def log_food():
     if "user_id" not in session:
         return jsonify(ok=False, error="Not logged in."), 401
+    plan = current_user_plan()
+    if plan == "free":
+        return jsonify(ok=False, error="The diet tracker needs Premium or Pro.", upgrade_required=True), 403
+
     data = request.get_json(force=True, silent=True) or {}
     name = (data.get("food_name") or "").strip()
     if not name:
         return jsonify(ok=False, error="Missing food name."), 400
-    try:
-        calories = float(data.get("calories", 0))
-    except (TypeError, ValueError):
-        return jsonify(ok=False, error="Invalid calories."), 400
+
+    known = KNOWN_FOODS.get(name.lower())
+    if known:
+        # Always trust the database's own numbers for a recognized food,
+        # never whatever the client sent, so no plan can log fake calories
+        # for a real item.
+        calories, protein_g, carbs_g, fat_g = known["calories"], known["protein_g"], known["carbs_g"], known["fat_g"]
+    elif plan == "pro":
+        try:
+            calories = float(data.get("calories", 0))
+        except (TypeError, ValueError):
+            return jsonify(ok=False, error="Invalid calories."), 400
+        protein_g = float(data.get("protein_g", 0) or 0)
+        carbs_g = float(data.get("carbs_g", 0) or 0)
+        fat_g = float(data.get("fat_g", 0) or 0)
+    else:
+        return jsonify(ok=False, error="Logging a custom food needs Pro.", upgrade_required=True), 403
 
     db = get_db()
     if IS_POSTGRES:
         cur = db.execute(
             """INSERT INTO food_log (user_id, food_name, calories, protein_g, carbs_g, fat_g, logged_at)
                VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id""",
-            (session["user_id"], name, calories, float(data.get("protein_g", 0) or 0),
-             float(data.get("carbs_g", 0) or 0), float(data.get("fat_g", 0) or 0), now_str()),
+            (session["user_id"], name, calories, protein_g, carbs_g, fat_g, now_str()),
         )
         new_id = cur.fetchone()["id"]
     else:
         cur = db.execute(
             """INSERT INTO food_log (user_id, food_name, calories, protein_g, carbs_g, fat_g, logged_at)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (session["user_id"], name, calories, float(data.get("protein_g", 0) or 0),
-             float(data.get("carbs_g", 0) or 0), float(data.get("fat_g", 0) or 0), now_str()),
+            (session["user_id"], name, calories, protein_g, carbs_g, fat_g, now_str()),
         )
         new_id = cur.lastrowid
     db.commit()
@@ -1085,13 +1130,17 @@ COUNTRY_PRICING = {
     "ZA": {"currency": "ZAR", "symbol": "R", "multiplier": 0.5},
 }
 
+FREE_CATEGORIES = {"cardio", "strength", "hiit", "yoga", "stretching"}  # the original 5 — always free
+
 BASE_PLANS = [
     {"id": "free", "name": "Free", "usd": 0, "period": "forever",
-     "features": ["3 workout categories", "Basic calorie calculator", "Ads supported"]},
+     "features": ["5 core workout categories", "Calorie/BMR/TDEE calculator", "Muscle-focus diagram", "Ads supported"]},
     {"id": "premium", "name": "Premium", "usd": 6.99, "period": "month",
-     "features": ["All workout categories", "Full macro breakdown", "Progress history", "No ads"]},
+     "features": ["Everything in Free", "All 13 workout categories (Chest, Back, Biceps, Abs & more)",
+                  "Full diet & calorie tracker", "Progress history", "No ads"]},
     {"id": "pro", "name": "Pro", "usd": 59.99, "period": "year",
-     "features": ["Everything in Premium", "Personalized plans", "Priority support", "2 months free"]},
+     "features": ["Everything in Premium", "Custom food logging", "Personalized AI workout plans",
+                  "Priority support", "2 months free"]},
 ]
 
 FX_TO_USD_RATE = {

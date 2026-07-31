@@ -291,6 +291,14 @@ h3 { font-size: 22px; }
 .food-stepper button:active { transform: scale(0.9); }
 .food-stepper-count { font-family: var(--font-mono); font-weight: 700; min-width: 16px; text-align: center; }
 
+.upgrade-prompt {
+  background: linear-gradient(135deg, rgba(139,123,255,0.14), rgba(139,123,255,0.02));
+  border: 1px solid rgba(139,123,255,0.25); border-radius: var(--radius);
+  padding: 24px 20px; text-align: center;
+}
+.upgrade-prompt-title { font-weight: 700; font-size: 16px; margin-bottom: 8px; }
+.upgrade-prompt .subtext { margin: 0 0 16px; }
+
 /* ==========================================================================
    Timer ring (signature element)
    ========================================================================== */

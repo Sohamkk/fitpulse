@@ -17,6 +17,7 @@ const state = {
   activeFoodCategory: null,
   foodLogToday: [],
   caloriesBurnedToday: 0,
+  dietLocked: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -282,6 +283,7 @@ async function loadFoodDatabase() {
   const { data } = await api("/api/foods");
   if (!data.ok) return;
   state.foodCategories = data.categories;
+  state.dietLocked = !!data.locked;
   if (!state.activeFoodCategory) {
     state.activeFoodCategory = Object.keys(data.categories)[0];
   }
@@ -300,6 +302,7 @@ async function loadFoodLogToday() {
 function renderFoodCategoryChips() {
   const wrap = document.getElementById("diet-category-chips");
   wrap.innerHTML = "";
+  if (state.dietLocked) return;
   Object.entries(state.foodCategories).forEach(([key, cat]) => {
     const chip = document.createElement("button");
     chip.className = "category-chip" + (key === state.activeFoodCategory ? " active" : "");
@@ -320,6 +323,18 @@ function countLoggedToday(foodName) {
 function renderFoodList(catKey, query) {
   const list = document.getElementById("diet-food-list");
   list.innerHTML = "";
+
+  if (state.dietLocked) {
+    list.innerHTML = `
+      <div class="upgrade-prompt">
+        <div class="upgrade-prompt-title">🔒 Diet tracker is a Premium feature</div>
+        <p class="subtext">Upgrade to log food, track calories eaten vs. burned, and see your daily remaining budget update live.</p>
+        <button class="btn btn-primary" id="upgrade-from-diet-btn">See plans</button>
+      </div>`;
+    document.getElementById("upgrade-from-diet-btn").addEventListener("click", () => showScreen("screen-plans"));
+    return;
+  }
+
   const q = (query || "").trim().toLowerCase();
 
   let items;
@@ -439,7 +454,7 @@ function renderCategoryChips() {
   Object.entries(state.categories).forEach(([key, cat]) => {
     const chip = document.createElement("button");
     chip.className = "category-chip" + (key === state.activeCategory ? " active" : "");
-    chip.textContent = cat.label;
+    chip.textContent = cat.locked ? `🔒 ${cat.label}` : cat.label;
     chip.addEventListener("click", () => {
       state.activeCategory = key;
       renderCategoryChips();
@@ -453,6 +468,21 @@ function renderExerciseList(catKey) {
   const cat = state.categories[catKey];
   const list = document.getElementById("exercise-list");
   list.innerHTML = "";
+  const startAllBtn = document.getElementById("start-category-btn");
+
+  if (cat.locked) {
+    list.innerHTML = `
+      <div class="upgrade-prompt">
+        <div class="upgrade-prompt-title">🔒 ${cat.label} is a Premium category</div>
+        <p class="subtext">Upgrade to unlock all 13 workout categories, including ${cat.label}.</p>
+        <button class="btn btn-primary" id="upgrade-from-exercises-btn">See plans</button>
+      </div>`;
+    document.getElementById("upgrade-from-exercises-btn").addEventListener("click", () => showScreen("screen-plans"));
+    startAllBtn.style.display = "none";
+    return;
+  }
+  startAllBtn.style.display = "";
+
   cat.items.forEach((ex) => {
     const card = document.createElement("div");
     card.className = "exercise-card";
@@ -469,7 +499,6 @@ function renderExerciseList(catKey) {
     list.appendChild(card);
   });
 
-  const startAllBtn = document.getElementById("start-category-btn");
   startAllBtn.textContent = `Start full ${cat.label} circuit`;
   startAllBtn.onclick = () => startWorkout(catKey, cat.items);
 }
@@ -678,13 +707,17 @@ async function runSearch(q) {
 // ---------------------------------------------------------------------------
 // Subscriptions
 // ---------------------------------------------------------------------------
-async function loadPlans() {
-  const country = state.user?.country || "IN";
-  const { data } = await api(`/api/plans?country=${country}`);
-  if (!data.ok) return;
+async function refreshAfterPlanChange() {
+  const { data } = await api("/api/me");
+  if (data.ok) state.user = data.user;
+  await Promise.all([loadExercises(), loadFoodDatabase()]);
+  renderAccountScreen();
+}
+
+function renderPlanCards(plans) {
   const wrap = document.getElementById("plans-list");
   wrap.innerHTML = "";
-  data.plans.forEach((p, i) => {
+  plans.forEach((p) => {
     const card = document.createElement("div");
     card.className = "plan-card" + (p.id === "premium" ? " recommended" : "");
     card.innerHTML = `
@@ -698,7 +731,10 @@ async function loadPlans() {
     card.querySelector("button").addEventListener("click", async () => {
       if (p.id === "free") {
         const { data: subData } = await api("/api/subscribe", { method: "POST", body: { plan: p.id, price: 0, currency: p.currency } });
-        if (subData.ok) flash("plan-status", `You're on ${p.name}.`, "success");
+        if (subData.ok) {
+          flash("plan-status", `You're on ${p.name}.`, "success");
+          await refreshAfterPlanChange();
+        }
         return;
       }
 
@@ -720,8 +756,24 @@ async function loadPlans() {
         name: "FitPulse",
         description: `${p.name} subscription`,
         order_id: subData.order.id,
-        handler: function () {
-          flash("plan-status", `Payment successful for ${p.name}.`, "success");
+        handler: async function (response) {
+          const { data: verifyData } = await api("/api/verify-payment", {
+            method: "POST",
+            body: {
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              plan: p.id,
+              price: p.usd,
+              currency: p.currency,
+            },
+          });
+          if (verifyData.ok) {
+            flash("plan-status", `Payment verified — subscribed to ${p.name}.`, "success");
+            await refreshAfterPlanChange();
+          } else {
+            flash("plan-status", verifyData.error || "Payment could not be verified.", "error");
+          }
         },
         prefill: { email: state.user?.identifier || "" },
         theme: { color: "#8B7BFF" }
@@ -733,6 +785,13 @@ async function loadPlans() {
   });
 }
 
+async function loadPlans() {
+  const country = state.user?.country || "IN";
+  const { data } = await api(`/api/plans?country=${country}`);
+  if (!data.ok) return;
+  renderPlanCards(data.plans);
+}
+
 document.getElementById("plan-country-select").addEventListener("change", (e) => {
   state.country = e.target.value;
   loadPlansForCountry(e.target.value);
@@ -742,55 +801,7 @@ async function loadPlansForCountry(country) {
   const { data } = await api(`/api/plans?country=${country}`);
   if (!data.ok) return;
   state.user = state.user || {};
-  const wrap = document.getElementById("plans-list");
-  wrap.innerHTML = "";
-  data.plans.forEach((p) => {
-    const card = document.createElement("div");
-    card.className = "plan-card" + (p.id === "premium" ? " recommended" : "");
-    card.innerHTML = `
-      ${p.id === "premium" ? '<div class="plan-badge">Most popular</div>' : ""}
-      <div class="plan-name">${p.name}</div>
-      <div class="plan-price">${p.price_display}<span> / ${p.period}</span></div>
-      <ul class="plan-features">${p.features.map((f) => `<li>${f}</li>`).join("")}</ul>
-      <button class="btn ${p.id === "free" ? "btn-ghost" : "btn-primary"}" style="margin-top:16px;">
-        ${p.id === "free" ? "Current plan" : "Choose " + p.name}
-      </button>`;
-    card.querySelector("button").addEventListener("click", async () => {
-      if (p.id === "free") {
-        const { data: subData } = await api("/api/subscribe", { method: "POST", body: { plan: p.id, price: 0, currency: p.currency } });
-        if (subData.ok) flash("plan-status", `You're on ${p.name}.`, "success");
-        return;
-      }
-
-      const { data: subData } = await api("/api/subscribe", { method: "POST", body: { plan: p.id, price: p.usd, currency: p.currency } });
-      if (!subData.ok) {
-        flash("plan-status", subData.error || "Could not start checkout.", "error");
-        return;
-      }
-
-      if (!subData.razorpay_key_id || !window.Razorpay) {
-        flash("plan-status", "Checkout is not configured yet. Your plan change was recorded locally.", "success");
-        return;
-      }
-
-      const options = {
-        key: subData.razorpay_key_id,
-        amount: subData.order.amount,
-        currency: subData.order.currency,
-        name: "FitPulse",
-        description: `${p.name} subscription`,
-        order_id: subData.order.id,
-        handler: function () {
-          flash("plan-status", `Payment successful for ${p.name}.`, "success");
-        },
-        prefill: { email: state.user?.identifier || "" },
-        theme: { color: "#8B7BFF" }
-      };
-      const razorpay = new window.Razorpay(options);
-      razorpay.open();
-    });
-    wrap.appendChild(card);
-  });
+  renderPlanCards(data.plans);
 }
 
 // ---------------------------------------------------------------------------
