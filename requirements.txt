@@ -2,6 +2,10 @@ Flask==3.0.3
 Werkzeug==3.0.3
 python-dotenv==1.0.1
 razorpay==1.4.2
+setuptools>=68        # razorpay's SDK imports pkg_resources internally, which
+                       # ships inside setuptools — newer minimal build envs
+                       # (e.g. uv-created venvs on Vercel) don't include it
+                       # by default anymore, so it must be listed explicitly.
 psycopg2-binary==2.9.9   # used only if DATABASE_URL / POSTGRES_URL is set (Vercel Postgres)
 
 # Optional — only needed if you enable these:
