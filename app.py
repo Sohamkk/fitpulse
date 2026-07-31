@@ -43,8 +43,10 @@ except ImportError:
 
 try:
     import razorpay
-except ImportError:
-    razorpay = None  # payments route will report this clearly instead of crashing
+    RAZORPAY_IMPORT_ERROR = None
+except ImportError as e:
+    razorpay = None
+    RAZORPAY_IMPORT_ERROR = str(e)  # surfaced in /api/debug-config instead of hidden
 
 # --- Database backend ---
 # Local dev / no DATABASE_URL set -> SQLite file (simple, zero setup).
@@ -1374,6 +1376,7 @@ def debug_config():
     return jsonify(
         ok=True,
         razorpay_package_installed=razorpay is not None,
+        razorpay_import_error=RAZORPAY_IMPORT_ERROR,
         razorpay_key_id_set=bool(RAZORPAY_KEY_ID),
         razorpay_key_id_prefix=(RAZORPAY_KEY_ID[:8] + "…") if RAZORPAY_KEY_ID else None,
         razorpay_key_secret_set=bool(RAZORPAY_KEY_SECRET),
