@@ -279,6 +279,17 @@ h3 { font-size: 22px; }
 .timer-value { font-family: var(--font-mono); font-size: 56px; font-weight: 700; }
 .timer-label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.12em; margin-top: 4px; }
 .timer-exercise-name { font-family: var(--font-display); font-size: 30px; margin-top: 24px; text-align: center; }
+
+.muscle-diagram { margin-top: 18px; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.muscle-diagram-figure { display: flex; gap: 18px; justify-content: center; }
+.body-svg { width: 92px; height: auto; }
+.body-svg-label { fill: var(--text-dim); font-family: var(--font-mono); font-size: 8px; text-anchor: middle; text-transform: uppercase; letter-spacing: 0.05em; }
+.body-svg .m-base { fill: var(--bg-card); stroke: var(--border); stroke-width: 1.5; }
+.body-svg [data-muscle] { fill: var(--steel); opacity: 0.55; stroke: var(--border); stroke-width: 1; transition: fill 0.3s var(--ease), opacity 0.3s var(--ease); }
+.body-svg [data-muscle].active { fill: var(--volt); opacity: 1; }
+.muscle-diagram-legend { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); text-align: center; text-transform: uppercase; letter-spacing: 0.04em; }
+.muscle-diagram-legend .active-label { color: var(--volt); }
+
 .timer-controls { display: flex; gap: 14px; margin-top: 28px; width: 100%; }
 .timer-icon-btn { width: 56px; height: 56px; border-radius: 50%; background: var(--bg-card); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; }
 .timer-progress-dots { display: flex; gap: 6px; margin-top: 20px; }

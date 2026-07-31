@@ -375,6 +375,7 @@ function runStep(exercise, phase) {
   document.getElementById("timer-exercise-name").textContent = phase === "work" ? exercise.name : "Rest";
   document.getElementById("timer-label").textContent = phase === "work" ? "Work" : "Recover";
   document.getElementById("timer-ring-container").classList.toggle("breathing", state.isResting);
+  renderMuscleDiagram(phase === "work" ? exercise.muscles : []);
 
   updateRing();
 
@@ -393,6 +394,27 @@ function updateRing() {
   const pct = state.timerSeconds / state.timerTotal;
   ring.style.strokeDashoffset = RING_CIRC * (1 - pct);
   document.getElementById("timer-value").textContent = state.timerSeconds;
+}
+
+const MUSCLE_LABELS = {
+  shoulders: "Shoulders", chest: "Chest", biceps: "Biceps", triceps: "Triceps",
+  forearms: "Forearms", abs: "Abs", obliques: "Obliques", quads: "Quads",
+  hamstrings: "Hamstrings", calves: "Calves", glutes: "Glutes", lats: "Lats",
+  upper_back: "Upper back", lower_back: "Lower back",
+};
+
+function renderMuscleDiagram(muscles = []) {
+  document.querySelectorAll("#muscle-diagram [data-muscle]").forEach((el) => {
+    el.classList.toggle("active", muscles.includes(el.dataset.muscle));
+  });
+  const legend = document.getElementById("muscle-diagram-legend");
+  if (!muscles.length) {
+    legend.innerHTML = "";
+    return;
+  }
+  legend.innerHTML =
+    "Targets: " +
+    muscles.map((m) => `<span class="active-label">${MUSCLE_LABELS[m] || m}</span>`).join(", ");
 }
 
 async function advanceWorkout(exercise, phase) {
@@ -421,6 +443,7 @@ function finishWorkout() {
   document.getElementById("timer-value").textContent = "✓";
   document.getElementById("ring-progress").style.strokeDashoffset = 0;
   document.getElementById("timer-ring-container").classList.remove("breathing");
+  renderMuscleDiagram([]);
 }
 
 document.getElementById("timer-skip-btn").addEventListener("click", () => {
