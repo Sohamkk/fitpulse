@@ -376,6 +376,7 @@ function runStep(exercise, phase) {
   document.getElementById("timer-label").textContent = phase === "work" ? "Work" : "Recover";
   document.getElementById("timer-ring-container").classList.toggle("breathing", state.isResting);
   renderMuscleDiagram(phase === "work" ? exercise.muscles : []);
+  renderStickFigure(phase === "work" ? exercise : null);
 
   updateRing();
 
@@ -387,6 +388,24 @@ function runStep(exercise, phase) {
       advanceWorkout(exercise, phase);
     }
   }, 1000);
+}
+
+const ALL_MOTIONS = ["jump", "run", "squat", "reach", "pushup", "climb", "hold", "bridge", "catcow", "downdog", "childspose"];
+
+function renderStickFigure(exercise) {
+  const standing = document.getElementById("rig-standing");
+  const floor = document.getElementById("rig-floor");
+  const wrap = document.getElementById("stick-figure-wrap");
+
+  standing.classList.remove("active");
+  floor.classList.remove("active");
+  ALL_MOTIONS.forEach((m) => wrap.classList.remove("motion-" + m));
+
+  if (!exercise || !exercise.motion) return;
+
+  const rig = exercise.orientation === "floor" ? floor : standing;
+  rig.classList.add("active");
+  if (exercise.motion) wrap.classList.add("motion-" + exercise.motion);
 }
 
 function updateRing() {
@@ -444,6 +463,7 @@ function finishWorkout() {
   document.getElementById("ring-progress").style.strokeDashoffset = 0;
   document.getElementById("timer-ring-container").classList.remove("breathing");
   renderMuscleDiagram([]);
+  renderStickFigure(null);
 }
 
 document.getElementById("timer-skip-btn").addEventListener("click", () => {

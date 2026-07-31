@@ -278,6 +278,102 @@ h3 { font-size: 22px; }
 .timer-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .timer-value { font-family: var(--font-mono); font-size: 56px; font-weight: 700; }
 .timer-label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.12em; margin-top: 4px; }
+/* Animated stick-figure exercise demo */
+.stick-figure-wrap { position: relative; width: 100px; height: 90px; display: flex; align-items: center; justify-content: center; }
+.stick-figure { width: 100px; height: auto; position: absolute; display: none; }
+.stick-figure.active { display: block; }
+.stick-figure .sf-limb { stroke: var(--volt); stroke-width: 4; stroke-linecap: round; fill: none; }
+.stick-figure .sf-head { fill: none; stroke: var(--volt); stroke-width: 4; }
+.stick-figure.floor { top: 8px; }
+
+/* Standing rig: joints positioned via transform, base = neutral standing pose */
+#rig-standing .sf-shoulder-l { transform: translate(50px, 28px) rotate(8deg); transform-origin: 0 0; }
+#rig-standing .sf-shoulder-r { transform: translate(50px, 28px) rotate(-8deg); transform-origin: 0 0; }
+#rig-standing .sf-elbow-l, #rig-standing .sf-elbow-r { transform: translate(0px, 20px) rotate(0deg); transform-origin: 0 0; }
+#rig-standing .sf-hip-l { transform: translate(50px, 70px) rotate(6deg); transform-origin: 0 0; }
+#rig-standing .sf-hip-r { transform: translate(50px, 70px) rotate(-6deg); transform-origin: 0 0; }
+#rig-standing .sf-knee-l, #rig-standing .sf-knee-r { transform: translate(0px, 28px) rotate(0deg); transform-origin: 0 0; }
+
+/* Floor rig: joints positioned for a side-on plank-style base pose */
+#rig-floor .sf-hip { transform: translate(88px, 42px) rotate(0deg); transform-origin: 0 0; }
+#rig-floor .sf-knee { transform: translate(35px, 8px) rotate(0deg); transform-origin: 0 0; }
+#rig-floor .sf-shoulder { transform: translate(28px, 32px) rotate(0deg); transform-origin: 0 0; }
+#rig-floor .sf-elbow { transform: translate(4px, 22px) rotate(0deg); transform-origin: 0 0; }
+
+/* ---- Standing motions ---- */
+.motion-jump .sf-shoulder-l { animation: jump-shoulder-l 0.7s ease-in-out infinite; }
+.motion-jump .sf-shoulder-r { animation: jump-shoulder-r 0.7s ease-in-out infinite; }
+.motion-jump .sf-hip-l { animation: jump-hip-l 0.7s ease-in-out infinite; }
+.motion-jump .sf-hip-r { animation: jump-hip-r 0.7s ease-in-out infinite; }
+.motion-jump #rig-standing { animation: jump-bounce 0.7s ease-in-out infinite; }
+@keyframes jump-bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes jump-shoulder-l { 0%, 100% { transform: translate(50px,28px) rotate(50deg); } 50% { transform: translate(50px,28px) rotate(8deg); } }
+@keyframes jump-shoulder-r { 0%, 100% { transform: translate(50px,28px) rotate(-50deg); } 50% { transform: translate(50px,28px) rotate(-8deg); } }
+@keyframes jump-hip-l { 0%, 100% { transform: translate(50px,70px) rotate(22deg); } 50% { transform: translate(50px,70px) rotate(6deg); } }
+@keyframes jump-hip-r { 0%, 100% { transform: translate(50px,70px) rotate(-22deg); } 50% { transform: translate(50px,70px) rotate(-6deg); } }
+
+.motion-run .sf-hip-l { animation: run-hip-l 0.5s ease-in-out infinite; }
+.motion-run .sf-hip-r { animation: run-hip-r 0.5s ease-in-out infinite; }
+.motion-run .sf-knee-l { animation: run-knee-l 0.5s ease-in-out infinite; }
+.motion-run .sf-knee-r { animation: run-knee-r 0.5s ease-in-out infinite; }
+.motion-run .sf-shoulder-l { animation: run-shoulder-r 0.5s ease-in-out infinite; }
+.motion-run .sf-shoulder-r { animation: run-shoulder-l 0.5s ease-in-out infinite; }
+@keyframes run-hip-l { 0%, 100% { transform: translate(50px,70px) rotate(-45deg); } 50% { transform: translate(50px,70px) rotate(20deg); } }
+@keyframes run-hip-r { 0%, 100% { transform: translate(50px,70px) rotate(20deg); } 50% { transform: translate(50px,70px) rotate(-45deg); } }
+@keyframes run-knee-l { 0%, 100% { transform: translate(0px,28px) rotate(70deg); } 50% { transform: translate(0px,28px) rotate(0deg); } }
+@keyframes run-knee-r { 0%, 100% { transform: translate(0px,28px) rotate(0deg); } 50% { transform: translate(0px,28px) rotate(70deg); } }
+@keyframes run-shoulder-l { 0%, 100% { transform: translate(50px,28px) rotate(35deg); } 50% { transform: translate(50px,28px) rotate(-25deg); } }
+@keyframes run-shoulder-r { 0%, 100% { transform: translate(50px,28px) rotate(-25deg); } 50% { transform: translate(50px,28px) rotate(35deg); } }
+
+.motion-squat #rig-standing { animation: squat-bob 1.3s ease-in-out infinite; }
+.motion-squat .sf-hip-l { animation: squat-hip-l 1.3s ease-in-out infinite; }
+.motion-squat .sf-hip-r { animation: squat-hip-r 1.3s ease-in-out infinite; }
+.motion-squat .sf-knee-l { animation: squat-knee-l 1.3s ease-in-out infinite; }
+.motion-squat .sf-knee-r { animation: squat-knee-r 1.3s ease-in-out infinite; }
+.motion-squat .sf-shoulder-l { animation: squat-arm-l 1.3s ease-in-out infinite; }
+.motion-squat .sf-shoulder-r { animation: squat-arm-r 1.3s ease-in-out infinite; }
+@keyframes squat-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(10px); } }
+@keyframes squat-hip-l { 0%, 100% { transform: translate(50px,70px) rotate(6deg); } 50% { transform: translate(50px,70px) rotate(35deg); } }
+@keyframes squat-hip-r { 0%, 100% { transform: translate(50px,70px) rotate(-6deg); } 50% { transform: translate(50px,70px) rotate(-35deg); } }
+@keyframes squat-knee-l { 0%, 100% { transform: translate(0px,28px) rotate(0deg); } 50% { transform: translate(0px,28px) rotate(-55deg); } }
+@keyframes squat-knee-r { 0%, 100% { transform: translate(0px,28px) rotate(0deg); } 50% { transform: translate(0px,28px) rotate(55deg); } }
+@keyframes squat-arm-l { 0%, 100% { transform: translate(50px,28px) rotate(8deg); } 50% { transform: translate(50px,28px) rotate(60deg); } }
+@keyframes squat-arm-r { 0%, 100% { transform: translate(50px,28px) rotate(-8deg); } 50% { transform: translate(50px,28px) rotate(-60deg); } }
+
+.motion-reach #rig-standing { animation: reach-sway 2.4s ease-in-out infinite; }
+.motion-reach .sf-shoulder-l { animation: reach-arm-l 2.4s ease-in-out infinite; }
+.motion-reach .sf-shoulder-r { animation: reach-arm-r 2.4s ease-in-out infinite; }
+@keyframes reach-sway { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(4deg); } }
+@keyframes reach-arm-l { 0%, 100% { transform: translate(50px,28px) rotate(30deg); } 50% { transform: translate(50px,28px) rotate(-150deg); } }
+@keyframes reach-arm-r { 0%, 100% { transform: translate(50px,28px) rotate(-30deg); } 50% { transform: translate(50px,28px) rotate(150deg); } }
+
+/* ---- Floor motions ---- */
+.motion-pushup #rig-floor { animation: pushup-bob 1.1s ease-in-out infinite; }
+.motion-pushup .sf-elbow { animation: pushup-elbow 1.1s ease-in-out infinite; }
+@keyframes pushup-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(10px); } }
+@keyframes pushup-elbow { 0%, 100% { transform: translate(4px,22px) rotate(0deg); } 50% { transform: translate(4px,22px) rotate(-40deg); } }
+
+.motion-climb .sf-knee { animation: climb-knee 0.55s ease-in-out infinite; }
+.motion-climb .sf-hip { animation: climb-hip 0.55s ease-in-out infinite; }
+@keyframes climb-hip { 0%, 100% { transform: translate(88px,42px) rotate(0deg); } 50% { transform: translate(88px,42px) rotate(-35deg); } }
+@keyframes climb-knee { 0%, 100% { transform: translate(35px,8px) rotate(0deg); } 50% { transform: translate(35px,8px) rotate(-90deg); } }
+
+.motion-hold #rig-floor { animation: hold-breathe 2.2s ease-in-out infinite; }
+@keyframes hold-breathe { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+
+.motion-bridge .sf-hip { animation: bridge-hip 1.4s ease-in-out infinite; }
+@keyframes bridge-hip { 0%, 100% { transform: translate(88px,42px) rotate(0deg); } 50% { transform: translate(88px,30px) rotate(-8deg); } }
+
+.motion-catcow .sf-torso { animation: catcow-torso 2.2s ease-in-out infinite; }
+@keyframes catcow-torso { 0%, 100% { d: path("M 28 32 Q 58 26 88 42"); } 50% { d: path("M 28 32 Q 58 46 88 42"); } }
+
+.motion-downdog #rig-floor { animation: downdog-sway 2.4s ease-in-out infinite; }
+.motion-downdog .sf-hip { animation: downdog-hip 2.4s ease-in-out infinite; }
+@keyframes downdog-sway { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@keyframes downdog-hip { 0%, 100% { transform: translate(88px,42px) rotate(0deg); } 50% { transform: translate(88px,42px) rotate(-6deg); } }
+
+.motion-childspose #rig-floor { animation: hold-breathe 2.6s ease-in-out infinite; }
+
 .timer-exercise-name { font-family: var(--font-display); font-size: 30px; margin-top: 24px; text-align: center; }
 
 .muscle-diagram { margin-top: 18px; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; }
