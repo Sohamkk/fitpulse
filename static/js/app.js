@@ -199,7 +199,7 @@ document.getElementById("edit-profile-btn").addEventListener("click", () => {
 async function enterApp() {
   document.getElementById("nav-bottom").classList.remove("hidden");
   renderGreeting();
-  await Promise.all([loadCalculatorResult(), loadExercises(), loadPlans()]);
+  await Promise.all([loadCalculatorResult(), loadExercises(), loadPlans(), updateWorkoutsToday()]);
   renderAccountScreen();
   showScreen("screen-dashboard");
 }
@@ -268,6 +268,26 @@ async function loadExercises() {
   renderCategoryChips();
   renderExerciseList(state.activeCategory);
   renderDashboardPreview();
+}
+
+async function updateWorkoutsToday() {
+  const { data } = await api("/api/history");
+  if (!data.ok) return;
+  const today = new Date();
+  const count = data.history.filter((h) => {
+    if (!h.logged_at) return false;
+    // logged_at is stored as a UTC timestamp string "YYYY-MM-DD HH:MM:SS" —
+    // convert to a real Date so "today" is judged in the user's own timezone,
+    // not the server's.
+    const d = new Date(h.logged_at.replace(" ", "T") + "Z");
+    return (
+      d.getFullYear() === today.getFullYear() &&
+      d.getMonth() === today.getMonth() &&
+      d.getDate() === today.getDate()
+    );
+  }).length;
+  const el = document.getElementById("dash-workouts-today");
+  if (el) el.textContent = count;
 }
 
 function renderCategoryChips() {
@@ -464,6 +484,7 @@ function finishWorkout() {
   document.getElementById("timer-ring-container").classList.remove("breathing");
   renderMuscleDiagram([]);
   renderStickFigure(null);
+  updateWorkoutsToday();
 }
 
 document.getElementById("timer-skip-btn").addEventListener("click", () => {
