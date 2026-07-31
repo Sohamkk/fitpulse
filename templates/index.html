@@ -97,7 +97,7 @@
     <div class="stat-row">
       <div class="stat-card accent">
         <div class="stat-value"><span id="dash-target-cal">—</span></div>
-        <div class="stat-label">Daily kcal target</div>
+        <div class="stat-label">Kcal remaining today</div>
       </div>
       <div class="stat-card">
         <div class="stat-value mono" id="dash-workouts-today">0</div>
@@ -131,29 +131,6 @@
   <div id="screen-timer" class="screen" style="align-items:center; padding-top:20px;">
     <button class="link-btn" id="timer-exit-btn" style="align-self:flex-start;">← Exit</button>
     <div class="timer-wrap">
-
-      <div class="stick-figure-wrap" id="stick-figure-wrap">
-        <svg viewBox="0 0 100 150" class="stick-figure standing" id="rig-standing">
-          <g class="sf-shoulder-l"><line class="sf-limb sf-upperarm" x1="0" y1="0" x2="0" y2="20"/>
-            <g class="sf-elbow-l"><line class="sf-limb sf-forearm" x1="0" y1="0" x2="0" y2="18"/></g></g>
-          <g class="sf-shoulder-r"><line class="sf-limb sf-upperarm" x1="0" y1="0" x2="0" y2="20"/>
-            <g class="sf-elbow-r"><line class="sf-limb sf-forearm" x1="0" y1="0" x2="0" y2="18"/></g></g>
-          <line class="sf-limb sf-torso" x1="50" y1="23" x2="50" y2="70"/>
-          <circle class="sf-head" cx="50" cy="15" r="8"/>
-          <g class="sf-hip-l"><line class="sf-limb sf-thigh" x1="0" y1="0" x2="0" y2="28"/>
-            <g class="sf-knee-l"><line class="sf-limb sf-shin" x1="0" y1="0" x2="0" y2="28"/></g></g>
-          <g class="sf-hip-r"><line class="sf-limb sf-thigh" x1="0" y1="0" x2="0" y2="28"/>
-            <g class="sf-knee-r"><line class="sf-limb sf-shin" x1="0" y1="0" x2="0" y2="28"/></g></g>
-        </svg>
-        <svg viewBox="0 0 160 90" class="stick-figure floor" id="rig-floor">
-          <g class="sf-hip"><line class="sf-limb sf-thigh" x1="0" y1="0" x2="35" y2="8"/>
-            <g class="sf-knee"><line class="sf-limb sf-shin" x1="0" y1="0" x2="32" y2="14"/></g></g>
-          <path class="sf-limb sf-torso" d="M 28 32 Q 58 26 88 42"/>
-          <circle class="sf-head" cx="20" cy="30" r="8"/>
-          <g class="sf-shoulder"><line class="sf-limb sf-upperarm" x1="0" y1="0" x2="4" y2="22"/>
-            <g class="sf-elbow"><line class="sf-limb sf-forearm" x1="0" y1="0" x2="0" y2="18"/></g></g>
-        </svg>
-      </div>
 
       <div class="timer-ring-container" id="timer-ring-container">
         <svg viewBox="0 0 260 260">
@@ -239,6 +216,35 @@
       <div class="macro-card" style="--macro-color:#FF4D5E"><div class="macro-val" id="macro-fat">—</div><div class="macro-label">Fat</div></div>
     </div>
     <p class="subtext" style="margin-top:20px;">Based on the Mifflin-St Jeor equation using your profile. Update your profile anytime to recalculate.</p>
+  </div>
+
+  <!-- DIET / NUTRITION -->
+  <div id="screen-diet" class="screen">
+    <div class="eyebrow">Nutrition</div>
+    <h2>Today's diet</h2>
+
+    <div class="diet-summary" id="diet-summary">
+      <div class="diet-summary-item">
+        <div class="diet-summary-val" id="diet-target">—</div>
+        <div class="diet-summary-label">Target</div>
+      </div>
+      <div class="diet-summary-item">
+        <div class="diet-summary-val" id="diet-eaten">0</div>
+        <div class="diet-summary-label">Eaten</div>
+      </div>
+      <div class="diet-summary-item">
+        <div class="diet-summary-val" id="diet-burned">0</div>
+        <div class="diet-summary-label">Burned</div>
+      </div>
+      <div class="diet-summary-item accent">
+        <div class="diet-summary-val" id="diet-remaining">—</div>
+        <div class="diet-summary-label">Remaining</div>
+      </div>
+    </div>
+
+    <input id="diet-search-input" class="field" type="text" placeholder="Search foods, e.g. paneer" style="margin-top:16px;">
+    <div class="category-scroll" id="diet-category-chips" style="margin-top:14px;"></div>
+    <div id="diet-food-list" style="margin-top:12px;"></div>
   </div>
 
   <!-- SEARCH / TRENDS -->
@@ -331,6 +337,9 @@
     </button>
     <button class="nav-item" data-nav="screen-calculator">
       <svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h4"/></svg>Calories
+    </button>
+    <button class="nav-item" data-nav="screen-diet">
+      <svg viewBox="0 0 24 24"><path d="M12 3c-1 2-3 3-3 6a3 3 0 0 0 6 0c0-3-2-4-3-6z"/><path d="M12 12v9M8 21h8"/></svg>Diet
     </button>
     <button class="nav-item" data-nav="screen-search">
       <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>Search

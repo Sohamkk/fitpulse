@@ -13,6 +13,10 @@ const state = {
   isResting: false,
   country: "IN",
   editingProfile: false,
+  foodCategories: null,
+  activeFoodCategory: null,
+  foodLogToday: [],
+  caloriesBurnedToday: 0,
 };
 
 // ---------------------------------------------------------------------------
@@ -199,7 +203,8 @@ document.getElementById("edit-profile-btn").addEventListener("click", () => {
 async function enterApp() {
   document.getElementById("nav-bottom").classList.remove("hidden");
   renderGreeting();
-  await Promise.all([loadCalculatorResult(), loadExercises(), loadPlans(), updateWorkoutsToday()]);
+  await Promise.all([loadCalculatorResult(), loadExercises(), loadPlans(), updateWorkoutsToday(), loadFoodDatabase()]);
+  renderDietSummary();
   renderAccountScreen();
   showScreen("screen-dashboard");
 }
@@ -270,24 +275,162 @@ async function loadExercises() {
   renderDashboardPreview();
 }
 
+// ---------------------------------------------------------------------------
+// Diet tracker
+// ---------------------------------------------------------------------------
+async function loadFoodDatabase() {
+  const { data } = await api("/api/foods");
+  if (!data.ok) return;
+  state.foodCategories = data.categories;
+  if (!state.activeFoodCategory) {
+    state.activeFoodCategory = Object.keys(data.categories)[0];
+  }
+  renderFoodCategoryChips();
+  await loadFoodLogToday();
+  renderFoodList(state.activeFoodCategory);
+}
+
+async function loadFoodLogToday() {
+  const { data } = await api("/api/food-log");
+  if (!data.ok) return;
+  state.foodLogToday = data.log.filter((f) => isLoggedToday(f.logged_at));
+  renderDietSummary();
+}
+
+function renderFoodCategoryChips() {
+  const wrap = document.getElementById("diet-category-chips");
+  wrap.innerHTML = "";
+  Object.entries(state.foodCategories).forEach(([key, cat]) => {
+    const chip = document.createElement("button");
+    chip.className = "category-chip" + (key === state.activeFoodCategory ? " active" : "");
+    chip.textContent = cat.label;
+    chip.addEventListener("click", () => {
+      state.activeFoodCategory = key;
+      renderFoodCategoryChips();
+      renderFoodList(key, document.getElementById("diet-search-input").value);
+    });
+    wrap.appendChild(chip);
+  });
+}
+
+function countLoggedToday(foodName) {
+  return state.foodLogToday.filter((f) => f.food_name === foodName).length;
+}
+
+function renderFoodList(catKey, query) {
+  const list = document.getElementById("diet-food-list");
+  list.innerHTML = "";
+  const q = (query || "").trim().toLowerCase();
+
+  let items;
+  if (q) {
+    items = [];
+    Object.values(state.foodCategories).forEach((cat) => {
+      cat.items.forEach((it) => {
+        if (it.name.toLowerCase().includes(q)) items.push(it);
+      });
+    });
+  } else {
+    items = state.foodCategories[catKey].items;
+  }
+
+  items.forEach((item) => {
+    const card = document.createElement("div");
+    card.className = "food-card";
+    const count = countLoggedToday(item.name);
+    card.innerHTML = `
+      <div>
+        <div class="food-card-name">${item.name}</div>
+        <div class="food-card-sub">${item.serving} · ${Math.round(item.calories)} kcal</div>
+      </div>
+      <div class="food-stepper">
+        <button class="minus" ${count === 0 ? "disabled" : ""}>−</button>
+        <span class="food-stepper-count">${count}</span>
+        <button class="plus">+</button>
+      </div>
+    `;
+    card.querySelector(".plus").addEventListener("click", () => logFoodItem(item));
+    card.querySelector(".minus").addEventListener("click", () => removeLastFoodLog(item));
+    list.appendChild(card);
+  });
+
+  if (!items.length) {
+    list.innerHTML = `<p class="subtext">No foods found.</p>`;
+  }
+}
+
+async function logFoodItem(item) {
+  const { data } = await api("/api/log-food", {
+    method: "POST",
+    body: {
+      food_name: item.name,
+      calories: item.calories,
+      protein_g: item.protein_g,
+      carbs_g: item.carbs_g,
+      fat_g: item.fat_g,
+    },
+  });
+  if (!data.ok) return;
+  await loadFoodLogToday();
+  renderFoodList(state.activeFoodCategory, document.getElementById("diet-search-input").value);
+}
+
+async function removeLastFoodLog(item) {
+  const matches = state.foodLogToday.filter((f) => f.food_name === item.name);
+  if (!matches.length) return;
+  const latest = matches.reduce((a, b) => (a.id > b.id ? a : b));
+  const { data } = await api(`/api/food-log/${latest.id}`, { method: "DELETE" });
+  if (!data.ok) return;
+  await loadFoodLogToday();
+  renderFoodList(state.activeFoodCategory, document.getElementById("diet-search-input").value);
+}
+
+function renderDietSummary() {
+  const target = state.lastCalcResult ? state.lastCalcResult.target_calories : null;
+  const eaten = state.foodLogToday.reduce((sum, f) => sum + (f.calories || 0), 0);
+  const burned = state.caloriesBurnedToday || 0;
+
+  document.getElementById("diet-eaten").textContent = Math.round(eaten);
+  document.getElementById("diet-burned").textContent = Math.round(burned);
+
+  if (target == null) {
+    document.getElementById("diet-target").textContent = "—";
+    document.getElementById("diet-remaining").textContent = "—";
+    document.getElementById("dash-target-cal").textContent = "—";
+    return;
+  }
+
+  const remaining = Math.round(target - eaten + burned);
+  document.getElementById("diet-target").textContent = target;
+  document.getElementById("diet-remaining").textContent = remaining;
+  document.getElementById("dash-target-cal").textContent = remaining;
+}
+
+document.getElementById("diet-search-input").addEventListener("input", (e) => {
+  renderFoodList(state.activeFoodCategory, e.target.value);
+});
+
+function isLoggedToday(timestampStr) {
+  if (!timestampStr) return false;
+  // Stored as a UTC timestamp string "YYYY-MM-DD HH:MM:SS" — convert to a
+  // real Date so "today" is judged in the user's own timezone, not the server's.
+  const d = new Date(timestampStr.replace(" ", "T") + "Z");
+  const today = new Date();
+  return (
+    d.getFullYear() === today.getFullYear() &&
+    d.getMonth() === today.getMonth() &&
+    d.getDate() === today.getDate()
+  );
+}
+
 async function updateWorkoutsToday() {
   const { data } = await api("/api/history");
   if (!data.ok) return;
-  const today = new Date();
-  const count = data.history.filter((h) => {
-    if (!h.logged_at) return false;
-    // logged_at is stored as a UTC timestamp string "YYYY-MM-DD HH:MM:SS" —
-    // convert to a real Date so "today" is judged in the user's own timezone,
-    // not the server's.
-    const d = new Date(h.logged_at.replace(" ", "T") + "Z");
-    return (
-      d.getFullYear() === today.getFullYear() &&
-      d.getMonth() === today.getMonth() &&
-      d.getDate() === today.getDate()
-    );
-  }).length;
+  const todays = data.history.filter((h) => isLoggedToday(h.logged_at));
   const el = document.getElementById("dash-workouts-today");
-  if (el) el.textContent = count;
+  if (el) el.textContent = todays.length;
+  state.caloriesBurnedToday = todays.reduce((sum, h) => sum + (h.calories || 0), 0);
+  renderDietSummary();
 }
 
 function renderCategoryChips() {
@@ -396,7 +539,6 @@ function runStep(exercise, phase) {
   document.getElementById("timer-label").textContent = phase === "work" ? "Work" : "Recover";
   document.getElementById("timer-ring-container").classList.toggle("breathing", state.isResting);
   renderMuscleDiagram(phase === "work" ? exercise.muscles : []);
-  renderStickFigure(phase === "work" ? exercise : null);
 
   updateRing();
 
@@ -408,24 +550,6 @@ function runStep(exercise, phase) {
       advanceWorkout(exercise, phase);
     }
   }, 1000);
-}
-
-const ALL_MOTIONS = ["jump", "run", "squat", "reach", "pushup", "climb", "hold", "bridge", "catcow", "downdog", "childspose"];
-
-function renderStickFigure(exercise) {
-  const standing = document.getElementById("rig-standing");
-  const floor = document.getElementById("rig-floor");
-  const wrap = document.getElementById("stick-figure-wrap");
-
-  standing.classList.remove("active");
-  floor.classList.remove("active");
-  ALL_MOTIONS.forEach((m) => wrap.classList.remove("motion-" + m));
-
-  if (!exercise || !exercise.motion) return;
-
-  const rig = exercise.orientation === "floor" ? floor : standing;
-  rig.classList.add("active");
-  if (exercise.motion) wrap.classList.add("motion-" + exercise.motion);
 }
 
 function updateRing() {
@@ -483,7 +607,6 @@ function finishWorkout() {
   document.getElementById("ring-progress").style.strokeDashoffset = 0;
   document.getElementById("timer-ring-container").classList.remove("breathing");
   renderMuscleDiagram([]);
-  renderStickFigure(null);
   updateWorkoutsToday();
 }
 

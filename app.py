@@ -218,6 +218,17 @@ SCHEMA_POSTGRES = """
         logged_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS food_log (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        food_name TEXT NOT NULL,
+        calories REAL NOT NULL,
+        protein_g REAL DEFAULT 0,
+        carbs_g REAL DEFAULT 0,
+        fat_g REAL DEFAULT 0,
+        logged_at TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS subscriptions (
         id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL REFERENCES users(id),
@@ -263,6 +274,17 @@ SCHEMA_SQLITE = """
         category TEXT,
         duration_sec INTEGER,
         calories REAL,
+        logged_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS food_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        food_name TEXT NOT NULL,
+        calories REAL NOT NULL,
+        protein_g REAL DEFAULT 0,
+        carbs_g REAL DEFAULT 0,
+        fat_g REAL DEFAULT 0,
         logged_at TEXT
     );
 
@@ -690,52 +712,52 @@ EXERCISES = {
         "label": "Cardio",
         "color": "#FF4D5E",
         "items": [
-            {"name": "Jumping Jacks", "duration": 45, "rest": 15, "met": 8.0, "muscles": ["shoulders", "quads", "calves", "abs"], "orientation": "standing", "motion": "jump"},
-            {"name": "High Knees", "duration": 40, "rest": 20, "met": 8.5, "muscles": ["quads", "hamstrings", "calves", "abs"], "orientation": "standing", "motion": "run"},
-            {"name": "Mountain Climbers", "duration": 40, "rest": 20, "met": 8.0, "muscles": ["abs", "obliques", "shoulders", "quads"], "orientation": "floor", "motion": "climb"},
-            {"name": "Burpees", "duration": 30, "rest": 30, "met": 10.0, "muscles": ["chest", "shoulders", "quads", "abs", "hamstrings", "calves"], "orientation": "floor", "motion": "pushup"},
-            {"name": "Jump Rope", "duration": 60, "rest": 20, "met": 11.0, "muscles": ["calves", "quads", "shoulders", "forearms"], "orientation": "standing", "motion": "jump"},
+            {"name": "Jumping Jacks", "duration": 45, "rest": 15, "met": 8.0, "muscles": ["shoulders", "quads", "calves", "abs"]},
+            {"name": "High Knees", "duration": 40, "rest": 20, "met": 8.5, "muscles": ["quads", "hamstrings", "calves", "abs"]},
+            {"name": "Mountain Climbers", "duration": 40, "rest": 20, "met": 8.0, "muscles": ["abs", "obliques", "shoulders", "quads"]},
+            {"name": "Burpees", "duration": 30, "rest": 30, "met": 10.0, "muscles": ["chest", "shoulders", "quads", "abs", "hamstrings", "calves"]},
+            {"name": "Jump Rope", "duration": 60, "rest": 20, "met": 11.0, "muscles": ["calves", "quads", "shoulders", "forearms"]},
         ],
     },
     "strength": {
         "label": "Strength",
         "color": "#8B7BFF",
         "items": [
-            {"name": "Push-ups", "duration": 40, "rest": 20, "met": 6.0, "muscles": ["chest", "shoulders", "triceps", "abs"], "orientation": "floor", "motion": "pushup"},
-            {"name": "Squats", "duration": 45, "rest": 15, "met": 5.5, "muscles": ["quads", "hamstrings", "glutes"], "orientation": "standing", "motion": "squat"},
-            {"name": "Lunges", "duration": 40, "rest": 20, "met": 5.0, "muscles": ["quads", "hamstrings", "glutes"], "orientation": "standing", "motion": "squat"},
-            {"name": "Plank", "duration": 60, "rest": 20, "met": 4.0, "muscles": ["abs", "obliques", "shoulders"], "orientation": "floor", "motion": "hold"},
-            {"name": "Glute Bridges", "duration": 40, "rest": 15, "met": 4.5, "muscles": ["glutes", "hamstrings", "lower_back"], "orientation": "floor", "motion": "bridge"},
+            {"name": "Push-ups", "duration": 40, "rest": 20, "met": 6.0, "muscles": ["chest", "shoulders", "triceps", "abs"]},
+            {"name": "Squats", "duration": 45, "rest": 15, "met": 5.5, "muscles": ["quads", "hamstrings", "glutes"]},
+            {"name": "Lunges", "duration": 40, "rest": 20, "met": 5.0, "muscles": ["quads", "hamstrings", "glutes"]},
+            {"name": "Plank", "duration": 60, "rest": 20, "met": 4.0, "muscles": ["abs", "obliques", "shoulders"]},
+            {"name": "Glute Bridges", "duration": 40, "rest": 15, "met": 4.5, "muscles": ["glutes", "hamstrings", "lower_back"]},
         ],
     },
     "hiit": {
         "label": "HIIT",
         "color": "#C7F464",
         "items": [
-            {"name": "Squat Jumps", "duration": 30, "rest": 30, "met": 9.5, "muscles": ["quads", "glutes", "calves"], "orientation": "standing", "motion": "jump"},
-            {"name": "Skater Hops", "duration": 30, "rest": 30, "met": 9.0, "muscles": ["quads", "glutes", "obliques", "calves"], "orientation": "standing", "motion": "run"},
-            {"name": "Tuck Jumps", "duration": 25, "rest": 35, "met": 10.0, "muscles": ["quads", "calves", "abs"], "orientation": "standing", "motion": "jump"},
-            {"name": "Sprint in Place", "duration": 30, "rest": 30, "met": 11.5, "muscles": ["quads", "hamstrings", "calves"], "orientation": "standing", "motion": "run"},
+            {"name": "Squat Jumps", "duration": 30, "rest": 30, "met": 9.5, "muscles": ["quads", "glutes", "calves"]},
+            {"name": "Skater Hops", "duration": 30, "rest": 30, "met": 9.0, "muscles": ["quads", "glutes", "obliques", "calves"]},
+            {"name": "Tuck Jumps", "duration": 25, "rest": 35, "met": 10.0, "muscles": ["quads", "calves", "abs"]},
+            {"name": "Sprint in Place", "duration": 30, "rest": 30, "met": 11.5, "muscles": ["quads", "hamstrings", "calves"]},
         ],
     },
     "yoga": {
         "label": "Yoga & Mobility",
         "color": "#6FD6C4",
         "items": [
-            {"name": "Sun Salutation", "duration": 60, "rest": 10, "met": 3.0, "muscles": ["shoulders", "abs", "hamstrings", "quads"], "orientation": "standing", "motion": "reach"},
-            {"name": "Downward Dog", "duration": 45, "rest": 10, "met": 2.5, "muscles": ["shoulders", "hamstrings", "calves", "upper_back"], "orientation": "floor", "motion": "downdog"},
-            {"name": "Warrior II", "duration": 45, "rest": 10, "met": 2.8, "muscles": ["quads", "glutes", "shoulders", "obliques"], "orientation": "standing", "motion": "reach"},
-            {"name": "Cat-Cow Stretch", "duration": 40, "rest": 10, "met": 2.3, "muscles": ["abs", "lower_back", "upper_back"], "orientation": "floor", "motion": "catcow"},
+            {"name": "Sun Salutation", "duration": 60, "rest": 10, "met": 3.0, "muscles": ["shoulders", "abs", "hamstrings", "quads"]},
+            {"name": "Downward Dog", "duration": 45, "rest": 10, "met": 2.5, "muscles": ["shoulders", "hamstrings", "calves", "upper_back"]},
+            {"name": "Warrior II", "duration": 45, "rest": 10, "met": 2.8, "muscles": ["quads", "glutes", "shoulders", "obliques"]},
+            {"name": "Cat-Cow Stretch", "duration": 40, "rest": 10, "met": 2.3, "muscles": ["abs", "lower_back", "upper_back"]},
         ],
     },
     "stretching": {
         "label": "Cooldown & Stretch",
         "color": "#F2F0EA",
         "items": [
-            {"name": "Hamstring Stretch", "duration": 30, "rest": 5, "met": 2.0, "muscles": ["hamstrings"], "orientation": "standing", "motion": "reach"},
-            {"name": "Quad Stretch", "duration": 30, "rest": 5, "met": 2.0, "muscles": ["quads"], "orientation": "standing", "motion": "reach"},
-            {"name": "Shoulder Stretch", "duration": 30, "rest": 5, "met": 1.8, "muscles": ["shoulders", "upper_back"], "orientation": "standing", "motion": "reach"},
-            {"name": "Child's Pose", "duration": 45, "rest": 5, "met": 1.8, "muscles": ["lower_back", "lats", "shoulders"], "orientation": "floor", "motion": "childspose"},
+            {"name": "Hamstring Stretch", "duration": 30, "rest": 5, "met": 2.0, "muscles": ["hamstrings"]},
+            {"name": "Quad Stretch", "duration": 30, "rest": 5, "met": 2.0, "muscles": ["quads"]},
+            {"name": "Shoulder Stretch", "duration": 30, "rest": 5, "met": 1.8, "muscles": ["shoulders", "upper_back"]},
+            {"name": "Child's Pose", "duration": 45, "rest": 5, "met": 1.8, "muscles": ["lower_back", "lats", "shoulders"]},
         ],
     },
     "chest": {
@@ -858,6 +880,190 @@ def get_history():
         (session["user_id"],),
     ).fetchall()
     return jsonify(ok=True, history=[dict(r) for r in rows])
+
+
+# ---------------------------------------------------------------------------
+# Diet tracker — food database + food log
+# ---------------------------------------------------------------------------
+# Not exhaustive of every food on earth (no database is), but covers common
+# veg, non-veg, dairy, grains, fruits, supplements and shakes so most people
+# can log a real day of eating. Values are per the stated serving size.
+FOOD_DATABASE = {
+    "grains": {
+        "label": "Grains & Carbs",
+        "items": [
+            {"name": "Rice (cooked)", "serving": "1 cup", "calories": 200, "protein_g": 4.3, "carbs_g": 44, "fat_g": 0.4},
+            {"name": "Brown Rice (cooked)", "serving": "1 cup", "calories": 215, "protein_g": 5.0, "carbs_g": 45, "fat_g": 1.8},
+            {"name": "Roti / Chapati", "serving": "1 piece", "calories": 120, "protein_g": 3.0, "carbs_g": 18, "fat_g": 3.5},
+            {"name": "Oats (cooked)", "serving": "1 cup", "calories": 150, "protein_g": 5.9, "carbs_g": 27, "fat_g": 2.5},
+            {"name": "Quinoa (cooked)", "serving": "1 cup", "calories": 220, "protein_g": 8.1, "carbs_g": 39, "fat_g": 3.6},
+            {"name": "Bread (white)", "serving": "1 slice", "calories": 80, "protein_g": 2.7, "carbs_g": 15, "fat_g": 1.0},
+            {"name": "Bread (whole wheat)", "serving": "1 slice", "calories": 70, "protein_g": 3.6, "carbs_g": 12, "fat_g": 1.0},
+            {"name": "Pasta (cooked)", "serving": "1 cup", "calories": 220, "protein_g": 8.0, "carbs_g": 43, "fat_g": 1.3},
+            {"name": "Potato (boiled)", "serving": "1 medium", "calories": 160, "protein_g": 4.0, "carbs_g": 37, "fat_g": 0.2},
+            {"name": "Sweet Potato (boiled)", "serving": "1 medium", "calories": 180, "protein_g": 4.0, "carbs_g": 41, "fat_g": 0.1},
+        ],
+    },
+    "legumes": {
+        "label": "Legumes & Veg Protein",
+        "items": [
+            {"name": "Dal / Lentils (cooked)", "serving": "1 cup", "calories": 230, "protein_g": 18, "carbs_g": 40, "fat_g": 0.8},
+            {"name": "Chickpeas / Chana (cooked)", "serving": "1 cup", "calories": 270, "protein_g": 15, "carbs_g": 45, "fat_g": 4.2},
+            {"name": "Rajma / Kidney Beans (cooked)", "serving": "1 cup", "calories": 225, "protein_g": 15, "carbs_g": 40, "fat_g": 0.9},
+            {"name": "Tofu", "serving": "100 g", "calories": 145, "protein_g": 15.5, "carbs_g": 4.3, "fat_g": 8.7},
+            {"name": "Paneer", "serving": "100 g", "calories": 265, "protein_g": 18, "carbs_g": 6, "fat_g": 20},
+            {"name": "Soya Chunks (cooked)", "serving": "100 g", "calories": 150, "protein_g": 22, "carbs_g": 10, "fat_g": 1.5},
+            {"name": "Sprouts", "serving": "1 cup", "calories": 30, "protein_g": 3.0, "carbs_g": 6, "fat_g": 0.2},
+        ],
+    },
+    "vegetables": {
+        "label": "Vegetables",
+        "items": [
+            {"name": "Mixed Vegetable Curry", "serving": "1 cup", "calories": 120, "protein_g": 3.5, "carbs_g": 15, "fat_g": 5.0},
+            {"name": "Spinach / Palak (cooked)", "serving": "1 cup", "calories": 40, "protein_g": 3.5, "carbs_g": 6.5, "fat_g": 0.5},
+            {"name": "Mixed Salad", "serving": "1 bowl", "calories": 50, "protein_g": 2.0, "carbs_g": 9, "fat_g": 0.5},
+            {"name": "Broccoli (steamed)", "serving": "1 cup", "calories": 55, "protein_g": 3.7, "carbs_g": 11, "fat_g": 0.6},
+        ],
+    },
+    "fruits": {
+        "label": "Fruits",
+        "items": [
+            {"name": "Banana", "serving": "1 medium", "calories": 105, "protein_g": 1.3, "carbs_g": 27, "fat_g": 0.4},
+            {"name": "Apple", "serving": "1 medium", "calories": 95, "protein_g": 0.5, "carbs_g": 25, "fat_g": 0.3},
+            {"name": "Mango", "serving": "1 cup", "calories": 100, "protein_g": 1.4, "carbs_g": 25, "fat_g": 0.6},
+            {"name": "Orange", "serving": "1 medium", "calories": 62, "protein_g": 1.2, "carbs_g": 15, "fat_g": 0.2},
+            {"name": "Papaya", "serving": "1 cup", "calories": 60, "protein_g": 0.9, "carbs_g": 15, "fat_g": 0.2},
+        ],
+    },
+    "dairy_eggs": {
+        "label": "Dairy & Eggs",
+        "items": [
+            {"name": "Milk (whole)", "serving": "1 cup", "calories": 150, "protein_g": 8.0, "carbs_g": 12, "fat_g": 8.0},
+            {"name": "Curd / Yogurt", "serving": "1 cup", "calories": 150, "protein_g": 8.5, "carbs_g": 11, "fat_g": 8.0},
+            {"name": "Egg (boiled)", "serving": "1 large", "calories": 78, "protein_g": 6.3, "carbs_g": 0.6, "fat_g": 5.3},
+            {"name": "Egg White", "serving": "1", "calories": 17, "protein_g": 3.6, "carbs_g": 0.2, "fat_g": 0.1},
+            {"name": "Cheese Slice", "serving": "1 slice", "calories": 70, "protein_g": 4.0, "carbs_g": 1.0, "fat_g": 5.5},
+            {"name": "Butter", "serving": "1 tbsp", "calories": 100, "protein_g": 0.1, "carbs_g": 0.0, "fat_g": 11.4},
+            {"name": "Ghee", "serving": "1 tbsp", "calories": 120, "protein_g": 0.0, "carbs_g": 0.0, "fat_g": 13.6},
+        ],
+    },
+    "non_veg": {
+        "label": "Non-Vegetarian",
+        "items": [
+            {"name": "Chicken Breast (cooked)", "serving": "100 g", "calories": 165, "protein_g": 31, "carbs_g": 0, "fat_g": 3.6},
+            {"name": "Chicken Thigh (cooked)", "serving": "100 g", "calories": 209, "protein_g": 26, "carbs_g": 0, "fat_g": 11},
+            {"name": "Mutton / Lamb", "serving": "100 g", "calories": 250, "protein_g": 25, "carbs_g": 0, "fat_g": 17},
+            {"name": "Salmon (cooked)", "serving": "100 g", "calories": 208, "protein_g": 20, "carbs_g": 0, "fat_g": 13},
+            {"name": "Fish (Rohu / Tilapia, cooked)", "serving": "100 g", "calories": 128, "protein_g": 26, "carbs_g": 0, "fat_g": 2.7},
+            {"name": "Shrimp / Prawns (cooked)", "serving": "100 g", "calories": 99, "protein_g": 24, "carbs_g": 0.2, "fat_g": 0.3},
+            {"name": "Beef (cooked)", "serving": "100 g", "calories": 250, "protein_g": 26, "carbs_g": 0, "fat_g": 17},
+            {"name": "Pork (cooked)", "serving": "100 g", "calories": 242, "protein_g": 27, "carbs_g": 0, "fat_g": 14},
+            {"name": "Bacon", "serving": "2 slices", "calories": 90, "protein_g": 6.0, "carbs_g": 0.3, "fat_g": 7.0},
+            {"name": "Tuna (canned)", "serving": "100 g", "calories": 132, "protein_g": 29, "carbs_g": 0, "fat_g": 1.0},
+        ],
+    },
+    "protein_supplements": {
+        "label": "Protein Shakes & Supplements",
+        "items": [
+            {"name": "Whey Protein Shake", "serving": "1 scoop", "calories": 120, "protein_g": 24, "carbs_g": 3, "fat_g": 1.5},
+            {"name": "Whey Protein Isolate", "serving": "1 scoop", "calories": 110, "protein_g": 25, "carbs_g": 1.5, "fat_g": 0.5},
+            {"name": "Mass Gainer Shake", "serving": "1 scoop", "calories": 480, "protein_g": 30, "carbs_g": 80, "fat_g": 4.0},
+            {"name": "Casein Protein Shake", "serving": "1 scoop", "calories": 120, "protein_g": 24, "carbs_g": 3, "fat_g": 1.0},
+            {"name": "Plant Protein Shake", "serving": "1 scoop", "calories": 110, "protein_g": 21, "carbs_g": 4, "fat_g": 2.0},
+            {"name": "Protein Bar", "serving": "1 bar", "calories": 200, "protein_g": 20, "carbs_g": 21, "fat_g": 7.0},
+            {"name": "BCAA", "serving": "1 serving", "calories": 5, "protein_g": 0, "carbs_g": 1.0, "fat_g": 0},
+            {"name": "Creatine Monohydrate", "serving": "1 serving", "calories": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0},
+            {"name": "Pre-Workout", "serving": "1 scoop", "calories": 10, "protein_g": 0, "carbs_g": 2.0, "fat_g": 0},
+            {"name": "Multivitamin", "serving": "1 serving", "calories": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0},
+            {"name": "Peanut Butter", "serving": "2 tbsp", "calories": 190, "protein_g": 7.0, "carbs_g": 6.0, "fat_g": 16},
+            {"name": "Almonds", "serving": "10 pieces", "calories": 70, "protein_g": 2.6, "carbs_g": 2.5, "fat_g": 6.0},
+            {"name": "Peanuts", "serving": "1/4 cup", "calories": 200, "protein_g": 9.0, "carbs_g": 6.0, "fat_g": 17},
+        ],
+    },
+    "snacks_beverages": {
+        "label": "Snacks & Beverages",
+        "items": [
+            {"name": "Black Coffee", "serving": "1 cup", "calories": 2, "protein_g": 0.3, "carbs_g": 0, "fat_g": 0},
+            {"name": "Tea with Milk", "serving": "1 cup", "calories": 40, "protein_g": 1.0, "carbs_g": 5.0, "fat_g": 1.5},
+            {"name": "Green Tea", "serving": "1 cup", "calories": 2, "protein_g": 0, "carbs_g": 0.5, "fat_g": 0},
+            {"name": "Soft Drink / Cola", "serving": "1 can", "calories": 140, "protein_g": 0, "carbs_g": 39, "fat_g": 0},
+            {"name": "Fruit Juice", "serving": "1 cup", "calories": 110, "protein_g": 0.5, "carbs_g": 26, "fat_g": 0.2},
+            {"name": "Biscuits", "serving": "2 pieces", "calories": 90, "protein_g": 1.3, "carbs_g": 14, "fat_g": 3.2},
+            {"name": "Chips", "serving": "1 small pack", "calories": 150, "protein_g": 2.0, "carbs_g": 15, "fat_g": 10},
+            {"name": "Chocolate", "serving": "40 g bar", "calories": 210, "protein_g": 2.5, "carbs_g": 24, "fat_g": 12},
+            {"name": "Ice Cream", "serving": "1 scoop", "calories": 137, "protein_g": 2.3, "carbs_g": 16, "fat_g": 7.3},
+            {"name": "Samosa", "serving": "1 piece", "calories": 260, "protein_g": 4.0, "carbs_g": 27, "fat_g": 15},
+            {"name": "Pizza Slice", "serving": "1 slice", "calories": 285, "protein_g": 12, "carbs_g": 36, "fat_g": 10},
+            {"name": "Burger", "serving": "1", "calories": 350, "protein_g": 15, "carbs_g": 33, "fat_g": 17},
+            {"name": "French Fries", "serving": "1 medium", "calories": 365, "protein_g": 4.0, "carbs_g": 48, "fat_g": 17},
+        ],
+    },
+}
+
+
+@app.get("/api/foods")
+def get_foods():
+    return jsonify(ok=True, categories=FOOD_DATABASE)
+
+
+@app.post("/api/log-food")
+def log_food():
+    if "user_id" not in session:
+        return jsonify(ok=False, error="Not logged in."), 401
+    data = request.get_json(force=True, silent=True) or {}
+    name = (data.get("food_name") or "").strip()
+    if not name:
+        return jsonify(ok=False, error="Missing food name."), 400
+    try:
+        calories = float(data.get("calories", 0))
+    except (TypeError, ValueError):
+        return jsonify(ok=False, error="Invalid calories."), 400
+
+    db = get_db()
+    if IS_POSTGRES:
+        cur = db.execute(
+            """INSERT INTO food_log (user_id, food_name, calories, protein_g, carbs_g, fat_g, logged_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id""",
+            (session["user_id"], name, calories, float(data.get("protein_g", 0) or 0),
+             float(data.get("carbs_g", 0) or 0), float(data.get("fat_g", 0) or 0), now_str()),
+        )
+        new_id = cur.fetchone()["id"]
+    else:
+        cur = db.execute(
+            """INSERT INTO food_log (user_id, food_name, calories, protein_g, carbs_g, fat_g, logged_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (session["user_id"], name, calories, float(data.get("protein_g", 0) or 0),
+             float(data.get("carbs_g", 0) or 0), float(data.get("fat_g", 0) or 0), now_str()),
+        )
+        new_id = cur.lastrowid
+    db.commit()
+    return jsonify(ok=True, id=new_id)
+
+
+@app.get("/api/food-log")
+def get_food_log():
+    if "user_id" not in session:
+        return jsonify(ok=False, error="Not logged in."), 401
+    rows = get_db().execute(
+        "SELECT * FROM food_log WHERE user_id=? ORDER BY id DESC LIMIT 200",
+        (session["user_id"],),
+    ).fetchall()
+    return jsonify(ok=True, log=[dict(r) for r in rows])
+
+
+@app.delete("/api/food-log/<int:entry_id>")
+def delete_food_log(entry_id):
+    if "user_id" not in session:
+        return jsonify(ok=False, error="Not logged in."), 401
+    db = get_db()
+    row = db.execute(
+        "SELECT id FROM food_log WHERE id=? AND user_id=?", (entry_id, session["user_id"])
+    ).fetchone()
+    if not row:
+        return jsonify(ok=False, error="Not found."), 404
+    db.execute("DELETE FROM food_log WHERE id=? AND user_id=?", (entry_id, session["user_id"]))
+    db.commit()
+    return jsonify(ok=True)
 
 
 # ---------------------------------------------------------------------------
