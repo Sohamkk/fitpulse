@@ -745,7 +745,7 @@ function renderPlanCards(plans) {
       }
 
       if (!subData.razorpay_key_id || !window.Razorpay) {
-        flash("plan-status", "Checkout is not configured yet. Your plan change was recorded locally.", "success");
+        flash("plan-status", "Checkout could not be started from this origin. Please test on HTTPS or a deployed domain with a valid Razorpay key pair.", "error");
         return;
       }
 
