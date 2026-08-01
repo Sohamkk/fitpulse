@@ -738,24 +738,28 @@ function renderPlanCards(plans) {
         return;
       }
 
-      const { data: subData } = await api("/api/subscribe", { method: "POST", body: { plan: p.id, price: p.amount, currency: p.currency } });
-      if (!subData.ok) {
-        flash("plan-status", subData.error || "Could not start checkout.", "error");
+      const amountPaisa = Math.round(Number(p.amount) * 100);
+      const { data: orderData } = await api("/api/create-order", {
+        method: "POST",
+        body: { amount: amountPaisa, currency: p.currency, receipt: `fitpulse-${p.id}-${Date.now()}` },
+      });
+      if (!orderData.ok) {
+        flash("plan-status", orderData.error || "Could not start checkout.", "error");
         return;
       }
 
-      if (!subData.razorpay_key_id || !window.Razorpay) {
+      if (!orderData.key_id || !window.Razorpay) {
         flash("plan-status", "Checkout could not be started from this origin. Please test on HTTPS or a deployed domain with a valid Razorpay key pair.", "error");
         return;
       }
 
       const options = {
-        key: subData.razorpay_key_id,
-        amount: subData.order.amount,
-        currency: subData.order.currency,
+        key: orderData.key_id,
+        amount: orderData.amount,
+        currency: orderData.currency,
         name: "FitPulse",
         description: `${p.name} subscription`,
-        order_id: subData.order.id,
+        order_id: orderData.order_id,
         handler: async function (response) {
           const { data: verifyData } = await api("/api/verify-payment", {
             method: "POST",
@@ -783,8 +787,12 @@ function renderPlanCards(plans) {
           },
         },
       };
+
       try {
         const razorpay = new window.Razorpay(options);
+        razorpay.on("payment.failed", function (response) {
+          flash("plan-status", response.error?.description || "Payment failed in the Razorpay modal.", "error");
+        });
         razorpay.open();
       } catch (err) {
         flash("plan-status", "Razorpay checkout could not open from this browser session.", "error");

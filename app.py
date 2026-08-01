@@ -22,6 +22,7 @@ once. Wire in Twilio in send_otp() if you want SMS instead of/alongside email.
 import os
 import re
 import time
+import hmac
 import random
 import sqlite3
 import smtplib
@@ -116,6 +117,52 @@ def get_razorpay_client():
     if not RAZORPAY_KEY_ID or not RAZORPAY_KEY_SECRET:
         return None
     return razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+
+
+def verify_razorpay_signature(order_id: str, payment_id: str, signature: str) -> bool:
+    if not RAZORPAY_KEY_SECRET:
+        return False
+    generated = hmac.new(
+        RAZORPAY_KEY_SECRET.encode("utf-8"),
+        f"{order_id}|{payment_id}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(generated, signature)
+
+
+def create_order_impl(plan: str, amount_paise: int, currency: str = "INR"):
+    client = get_razorpay_client()
+    if not client:
+        return jsonify(
+            ok=False,
+            error="Payments aren't configured on the server yet (missing RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET, or the razorpay package isn't installed).",
+        ), 502
+
+    if amount_paise < 100:
+        return jsonify(ok=False, error="Minimum order amount is 100 paise."), 400
+
+    try:
+        order = client.order.create({
+            "amount": amount_paise,
+            "currency": currency,
+            "receipt": f"user{session['user_id']}-{plan}-{int(time.time())}",
+            "notes": {"user_id": str(session["user_id"]), "plan": plan},
+        })
+    except Exception as exc:
+        logger.error("Razorpay order creation failed: %s", exc)
+        msg = str(exc)
+        if "Authentication" in msg or "auth" in msg.lower():
+            msg = "Razorpay test auth failed. Please confirm that the key pair in .env is valid for the current Razorpay account and is being used from a secure HTTPS origin."
+        return jsonify(ok=False, error=f"Could not start checkout: {msg}"), 502
+
+    return jsonify(
+        ok=True,
+        requires_payment=True,
+        payment_method="razorpay",
+        razorpay_key_id=RAZORPAY_KEY_ID,
+        order={"id": order["id"], "amount": order["amount"], "currency": order["currency"]},
+        plan=plan,
+    )
 
 
 from werkzeug.exceptions import HTTPException
@@ -1171,6 +1218,54 @@ def get_plans():
     return jsonify(ok=True, country=country, plans=plans)
 
 
+@app.post("/api/create-order")
+def create_order():
+    """
+    Standard Razorpay web checkout order creation endpoint.
+    Accepts the order amount in paise (minimum 100) and returns the
+    order payload needed by the frontend checkout modal.
+    """
+    if "user_id" not in session:
+        return jsonify(ok=False, error="Not logged in."), 401
+
+    data = request.get_json(force=True, silent=True) or {}
+    amount = int(data.get("amount", 0) or 0)
+    currency = (data.get("currency") or "INR").upper()
+    receipt = data.get("receipt") or f"user{session['user_id']}-{int(time.time())}"
+
+    if amount < 100:
+        return jsonify(ok=False, error="Minimum order amount is 100 paise."), 400
+
+    client = get_razorpay_client()
+    if not client:
+        return jsonify(
+            ok=False,
+            error="Payments aren't configured on the server yet (missing RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET, or the razorpay package isn't installed).",
+        ), 502
+
+    try:
+        order = client.order.create({
+            "amount": amount,
+            "currency": currency,
+            "receipt": receipt,
+            "notes": {"user_id": str(session["user_id"])},
+        })
+    except Exception as exc:
+        logger.error("Razorpay order creation failed: %s", exc)
+        msg = str(exc)
+        if "Authentication" in msg or "auth" in msg.lower():
+            msg = "Razorpay test auth failed. Please confirm that the key pair in .env is valid for the current Razorpay account and is being used from a secure HTTPS origin."
+        return jsonify(ok=False, error=f"Could not start checkout: {msg}"), 502
+
+    return jsonify(
+        ok=True,
+        order_id=order["id"],
+        amount=order["amount"],
+        currency=order["currency"],
+        key_id=RAZORPAY_KEY_ID,
+    )
+
+
 @app.post("/api/subscribe")
 def subscribe():
     """
@@ -1197,40 +1292,8 @@ def subscribe():
         db.commit()
         return jsonify(ok=True, message=f"Subscribed to {plan}.", requires_payment=False)
 
-    # Paid plan: create a REAL Razorpay order. Nothing is recorded and the
-    # user's plan is NOT changed yet — that only happens once /api/verify-payment
-    # confirms a real, signature-verified payment. This is what stops the
-    # plan/price shown to Razorpay's charging money.
-    client = get_razorpay_client()
-    if not client:
-        return jsonify(
-            ok=False,
-            error="Payments aren't configured on the server yet (missing RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET, or the razorpay package isn't installed).",
-        ), 502
-
-    amount_paise = int(round(float(price) * 100))  # Razorpay expects the smallest currency unit
-    try:
-        order = client.order.create({
-            "amount": amount_paise,
-            "currency": currency,
-            "receipt": f"user{session['user_id']}-{plan}-{int(time.time())}",
-            "notes": {"user_id": str(session["user_id"]), "plan": plan},
-        })
-    except Exception as exc:
-        logger.error("Razorpay order creation failed: %s", exc)
-        msg = str(exc)
-        if "Authentication" in msg or "auth" in msg.lower():
-            msg = "Razorpay test auth failed. Please confirm that the key pair in .env is valid for the current Razorpay account and is being used from a secure HTTPS origin."
-        return jsonify(ok=False, error=f"Could not start checkout: {msg}"), 502
-
-    return jsonify(
-        ok=True,
-        requires_payment=True,
-        payment_method="razorpay",
-        razorpay_key_id=RAZORPAY_KEY_ID,
-        order={"id": order["id"], "amount": order["amount"], "currency": order["currency"]},
-        plan=plan,
-    )
+    amount_paise = int(round(float(price) * 100))
+    return create_order_impl(plan=plan, amount_paise=amount_paise, currency=currency)
 
 
 @app.post("/api/verify-payment")
@@ -1258,13 +1321,7 @@ def verify_payment():
     if not client:
         return jsonify(ok=False, error="Payments aren't configured on the server."), 502
 
-    try:
-        client.utility.verify_payment_signature({
-            "razorpay_order_id": order_id,
-            "razorpay_payment_id": payment_id,
-            "razorpay_signature": signature,
-        })
-    except razorpay.errors.SignatureVerificationError:
+    if not verify_razorpay_signature(order_id, payment_id, signature):
         logger.warning("Razorpay signature verification failed for order %s", order_id)
         return jsonify(ok=False, error="Payment could not be verified."), 400
 
