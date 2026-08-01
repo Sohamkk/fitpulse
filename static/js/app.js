@@ -728,75 +728,61 @@ function renderPlanCards(plans) {
       <button class="btn ${p.id === "free" ? "btn-ghost" : "btn-primary"}" style="margin-top:16px;">
         ${p.id === "free" ? "Current plan" : "Choose " + p.name}
       </button>`;
-    card.querySelector("button").addEventListener("click", () => startPlanCheckout(p));
+    card.querySelector("button").addEventListener("click", async () => {
+      if (p.id === "free") {
+        const { data: subData } = await api("/api/subscribe", { method: "POST", body: { plan: p.id, price: 0, currency: p.currency } });
+        if (subData.ok) {
+          flash("plan-status", `You're on ${p.name}.`, "success");
+          await refreshAfterPlanChange();
+        }
+        return;
+      }
+
+      const { data: subData } = await api("/api/subscribe", { method: "POST", body: { plan: p.id, price: p.amount, currency: p.currency } });
+      if (!subData.ok) {
+        flash("plan-status", subData.error || "Could not start checkout.", "error");
+        return;
+      }
+
+      if (!subData.razorpay_key_id || !window.Razorpay) {
+        flash("plan-status", "Checkout could not be started from this origin. Please test on HTTPS or a deployed domain with a valid Razorpay key pair.", "error");
+        return;
+      }
+
+      const options = {
+        key: subData.razorpay_key_id,
+        amount: subData.order.amount,
+        currency: subData.order.currency,
+        name: "FitPulse",
+        description: `${p.name} subscription`,
+        order_id: subData.order.id,
+        handler: async function (response) {
+          const { data: verifyData } = await api("/api/verify-payment", {
+            method: "POST",
+            body: {
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              plan: p.id,
+              price: p.amount,
+              currency: p.currency,
+            },
+          });
+          if (verifyData.ok) {
+            flash("plan-status", `Payment verified — subscribed to ${p.name}.`, "success");
+            await refreshAfterPlanChange();
+          } else {
+            flash("plan-status", verifyData.error || "Payment could not be verified.", "error");
+          }
+        },
+        prefill: { email: state.user?.identifier || "" },
+        theme: { color: "#8B7BFF" }
+      };
+      const razorpay = new window.Razorpay(options);
+      razorpay.open();
+    });
     wrap.appendChild(card);
   });
-}
-
-async function startPlanCheckout(p) {
-  // Only the plan id (and, for paid plans, the country already baked into
-  // p.currency via /api/plans) is ever sent — price/currency are computed
-  // server-side from BASE_PLANS/COUNTRY_PRICING and never trusted from here.
-  if (p.id === "free") {
-    const { data: subData } = await api("/api/subscribe", { method: "POST", body: { plan: p.id } });
-    if (subData.ok) {
-      flash("plan-status", `You're on ${p.name}.`, "success");
-      await refreshAfterPlanChange();
-    } else {
-      flash("plan-status", subData.error || "Could not switch plans.", "error");
-    }
-    return;
-  }
-
-  const { data: subData } = await api("/api/subscribe", { method: "POST", body: { plan: p.id } });
-  if (!subData.ok) {
-    flash("plan-status", subData.error || "Could not start checkout.", "error");
-    return;
-  }
-
-  if (!subData.razorpay_key_id || !window.Razorpay) {
-    flash("plan-status", "Checkout is not configured yet. Your plan change was recorded locally.", "success");
-    return;
-  }
-
-  const options = {
-    key: subData.razorpay_key_id,
-    amount: subData.order.amount,
-    currency: subData.order.currency,
-    name: "FitPulse",
-    description: `${p.name} subscription`,
-    order_id: subData.order.id,
-    handler: async function (response) {
-      const { data: verifyData } = await api("/api/verify-payment", {
-        method: "POST",
-        body: {
-          razorpay_order_id: response.razorpay_order_id,
-          razorpay_payment_id: response.razorpay_payment_id,
-          razorpay_signature: response.razorpay_signature,
-        },
-      });
-      if (verifyData.ok) {
-        flash("plan-status", verifyData.message || `Payment verified — subscribed to ${p.name}.`, "success");
-        await refreshAfterPlanChange();
-      } else {
-        flash("plan-status", verifyData.error || "Payment could not be verified.", "error");
-      }
-    },
-    modal: {
-      // Fires when the user closes the checkout popup without paying.
-      ondismiss: function () {
-        flash("plan-status", "Checkout cancelled — no payment was made.", "error");
-      },
-    },
-    prefill: { email: state.user?.identifier || "" },
-    theme: { color: "#8B7BFF" },
-  };
-
-  const razorpay = new window.Razorpay(options);
-  razorpay.on("payment.failed", function (response) {
-    flash("plan-status", response.error?.description || "Payment failed. Please try again.", "error");
-  });
-  razorpay.open();
 }
 
 async function loadPlans() {

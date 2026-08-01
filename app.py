@@ -1150,40 +1150,22 @@ FX_TO_USD_RATE = {
 }
 
 
-def compute_plan_price(plan_id: str, country: str):
-    """
-    Single source of truth for what a plan actually costs. Used by both
-    /api/plans (display) and /api/subscribe (charging) so the amount a
-    user is charged can never be set by the client — only the plan id
-    and country are ever taken from the request, and country only picks
-    which row of COUNTRY_PRICING to use, not the price itself.
-    Returns (plan_dict, local_price, currency) or (None, None, None) if
-    plan_id isn't a real plan.
-    """
-    plan = next((p for p in BASE_PLANS if p["id"] == plan_id), None)
-    if not plan:
-        return None, None, None
-    country = (country or "US").upper()
-    pricing = COUNTRY_PRICING.get(country, COUNTRY_PRICING["US"])
-    currency = pricing["currency"]
-    rate = FX_TO_USD_RATE.get(currency, 1)
-    local_price = round(plan["usd"] * rate * pricing["multiplier"], 2)
-    return plan, local_price, currency
-
-
 @app.get("/api/plans")
 def get_plans():
     country = request.args.get("country", "US").upper()
     pricing = COUNTRY_PRICING.get(country, COUNTRY_PRICING["US"])
     currency = pricing["currency"]
+    rate = FX_TO_USD_RATE.get(currency, 1)
 
     plans = []
     for p in BASE_PLANS:
-        _, local_price, _ = compute_plan_price(p["id"], country)
+        local_price = p["usd"] * rate * pricing["multiplier"]
+        rounded_price = round(local_price, 2)
         plans.append({
             **p,
-            "price_display": f'{pricing["symbol"]}{local_price:,.0f}' if local_price >= 1 or local_price == 0
-                              else f'{pricing["symbol"]}{local_price:.2f}',
+            "amount": rounded_price,
+            "price_display": f'{pricing["symbol"]}{rounded_price:,.0f}' if rounded_price >= 1 or rounded_price == 0
+                              else f'{pricing["symbol"]}{rounded_price:.2f}',
             "currency": currency,
         })
     return jsonify(ok=True, country=country, plans=plans)
@@ -1199,34 +1181,26 @@ def subscribe():
     if "user_id" not in session:
         return jsonify(ok=False, error="Not logged in."), 401
     data = request.get_json(force=True, silent=True) or {}
-    plan_id = data.get("plan", "free")
+    plan = data.get("plan", "free")
+    price = data.get("price", 0)
+    currency = data.get("currency", "USD")
 
     db = get_db()
-    user = db.execute("SELECT * FROM users WHERE id=?", (session["user_id"],)).fetchone()
-    country = data.get("country") or (user["country"] if user else None) or "US"
-
-    # Price/currency are NEVER taken from the request body — only the plan id
-    # and country are, and those are looked up against BASE_PLANS /
-    # COUNTRY_PRICING server-side. This is what stops a tampered client
-    # request from setting its own price.
-    plan, local_price, currency = compute_plan_price(plan_id, country)
-    if not plan:
-        return jsonify(ok=False, error="Unknown plan."), 400
 
     # Free plan needs no payment — activate immediately.
-    if plan["id"] == "free" or not local_price:
+    if plan == "free" or not price:
         db.execute(
             "INSERT INTO subscriptions (user_id, plan, price, currency, started_at) VALUES (?, ?, ?, ?, ?)",
-            (session["user_id"], plan["id"], local_price, currency, now_str()),
+            (session["user_id"], plan, price, currency, now_str()),
         )
-        db.execute("UPDATE users SET plan=? WHERE id=?", (plan["id"], session["user_id"]))
+        db.execute("UPDATE users SET plan=? WHERE id=?", (plan, session["user_id"]))
         db.commit()
-        return jsonify(ok=True, message=f"Subscribed to {plan['id']}.", requires_payment=False)
+        return jsonify(ok=True, message=f"Subscribed to {plan}.", requires_payment=False)
 
-    # Paid plan: create a REAL Razorpay order for the server-computed amount.
-    # Nothing is recorded and the user's plan is NOT changed yet — that only
-    # happens once /api/verify-payment confirms a real, signature-verified
-    # payment against this exact order.
+    # Paid plan: create a REAL Razorpay order. Nothing is recorded and the
+    # user's plan is NOT changed yet — that only happens once /api/verify-payment
+    # confirms a real, signature-verified payment. This is what stops the
+    # plan/price shown to Razorpay's charging money.
     client = get_razorpay_client()
     if not client:
         return jsonify(
@@ -1234,32 +1208,25 @@ def subscribe():
             error="Payments aren't configured on the server yet (missing RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET, or the razorpay package isn't installed).",
         ), 502
 
-    amount_paise = int(round(float(local_price) * 100))  # Razorpay expects the smallest currency unit
-    if amount_paise < 100:
-        return jsonify(ok=False, error="Order amount is below Razorpay's minimum (100 paise)."), 400
-
+    amount_paise = int(round(float(price) * 100))  # Razorpay expects the smallest currency unit
     try:
         order = client.order.create({
             "amount": amount_paise,
             "currency": currency,
-            "receipt": f"user{session['user_id']}-{plan['id']}-{int(time.time())}",
-            "notes": {"user_id": str(session["user_id"]), "plan": plan["id"]},
+            "receipt": f"user{session['user_id']}-{plan}-{int(time.time())}",
+            "notes": {"user_id": str(session["user_id"]), "plan": plan},
         })
     except Exception as exc:
-        msg = str(exc)
-        # The Razorpay SDK raises a generic exception for bad auth too;
-        # surface that distinctly so it's clear it's a config problem, not
-        # a one-off order failure.
-        status = 401 if "authentication" in msg.lower() or "key" in msg.lower() else 500
         logger.error("Razorpay order creation failed: %s", exc)
-        return jsonify(ok=False, error=f"Could not start checkout: {exc}"), status
+        return jsonify(ok=False, error=f"Could not start checkout: {exc}"), 502
 
     return jsonify(
         ok=True,
         requires_payment=True,
+        payment_method="razorpay",
         razorpay_key_id=RAZORPAY_KEY_ID,
         order={"id": order["id"], "amount": order["amount"], "currency": order["currency"]},
-        plan=plan["id"],
+        plan=plan,
     )
 
 
@@ -1277,8 +1244,11 @@ def verify_payment():
     order_id = data.get("razorpay_order_id")
     payment_id = data.get("razorpay_payment_id")
     signature = data.get("razorpay_signature")
+    plan = data.get("plan")
+    price = data.get("price", 0)
+    currency = data.get("currency", "INR")
 
-    if not (order_id and payment_id and signature):
+    if not (order_id and payment_id and signature and plan):
         return jsonify(ok=False, error="Missing payment details."), 400
 
     client = get_razorpay_client()
@@ -1294,28 +1264,6 @@ def verify_payment():
     except razorpay.errors.SignatureVerificationError:
         logger.warning("Razorpay signature verification failed for order %s", order_id)
         return jsonify(ok=False, error="Payment could not be verified."), 400
-
-    # Don't trust plan/price/currency from the client at all — pull them
-    # back from the order Razorpay itself created and stored server-side in
-    # /api/subscribe. The order's `notes` carry the user_id and plan we set
-    # at creation time, and its amount/currency are what Razorpay actually
-    # charged, so this is the authoritative record, not a re-statement of
-    # whatever the browser happens to send.
-    try:
-        order = client.order.fetch(order_id)
-    except Exception as exc:
-        logger.error("Could not fetch Razorpay order %s: %s", order_id, exc)
-        return jsonify(ok=False, error="Could not confirm order details with Razorpay."), 502
-
-    notes = order.get("notes") or {}
-    plan = notes.get("plan")
-    order_user_id = notes.get("user_id")
-    if not plan or str(order_user_id) != str(session["user_id"]):
-        logger.warning("Order %s notes don't match session user or have no plan", order_id)
-        return jsonify(ok=False, error="This order does not belong to your account."), 403
-
-    price = (order.get("amount") or 0) / 100
-    currency = order.get("currency", "INR")
 
     db = get_db()
     db.execute(
