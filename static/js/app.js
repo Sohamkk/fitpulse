@@ -18,6 +18,7 @@ const state = {
   foodLogToday: [],
   caloriesBurnedToday: 0,
   dietLocked: false,
+  stats: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -206,8 +207,54 @@ async function enterApp() {
   renderGreeting();
   await Promise.all([loadCalculatorResult(), loadExercises(), loadPlans(), updateWorkoutsToday(), loadFoodDatabase()]);
   renderDietSummary();
+  await dailyCheckin();
   renderAccountScreen();
   showScreen("screen-dashboard");
+}
+
+function localDateString() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+async function dailyCheckin() {
+  const { data } = await api("/api/checkin", { method: "POST", body: { local_date: localDateString() } });
+  if (!data.ok) return;
+  state.stats = data;
+  renderStreakWidget(data);
+  if (!data.already_checked_in_today && data.xp_gained > 0) {
+    showUnlockToast({ name: "Daily check-in", desc: `+${data.xp_gained} XP just for showing up` });
+  }
+  (data.newly_unlocked || []).forEach(showUnlockToast);
+}
+
+async function refreshStreakWidget() {
+  const { data } = await api("/api/stats");
+  if (!data.ok) return;
+  state.stats = data;
+  renderStreakWidget(data);
+}
+
+function renderStreakWidget(stats) {
+  document.getElementById("dash-streak-count").textContent = stats.streak;
+  document.getElementById("dash-freeze-note").textContent =
+    `${stats.freeze_available} streak freeze${stats.freeze_available === 1 ? "" : "s"} left this month`;
+  document.getElementById("dash-level-name").textContent = stats.level;
+  document.getElementById("dash-xp-count").textContent = stats.xp;
+
+  const tiers = { Bronze: [0, 100], Silver: [100, 300], Gold: [300, 700], Platinum: [700, 1400] };
+  const [lo, hi] = tiers[stats.level] || [0, 100];
+  const pct = Math.min(100, Math.round(((stats.xp - lo) / (hi - lo)) * 100));
+  document.getElementById("dash-xp-fill").style.width = pct + "%";
+}
+
+function showUnlockToast(item) {
+  const toast = document.createElement("div");
+  toast.className = "unlock-toast";
+  toast.innerHTML = `<span style="font-size:20px;">🏆</span><div><strong>${item.name}</strong><div style="font-size:11px;color:var(--text-dim);">${item.desc}</div></div>`;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3500);
 }
 
 function renderGreeting() {
@@ -237,6 +284,31 @@ function renderAccountScreen() {
   document.getElementById("acc-height").textContent = u.height_cm ? `${u.height_cm} cm` : "—";
   document.getElementById("acc-goal").textContent = GOAL_LABELS[u.goal] || "—";
   document.getElementById("acc-activity").textContent = ACTIVITY_LABELS[u.activity_level] || "—";
+  renderAchievements();
+}
+
+const BADGE_ICONS = {
+  first_workout: "🎯", streak_3: "🔥", streak_7: "⚡", streak_30: "🏔️",
+  xp_100: "🥈", xp_300: "🥇", xp_700: "💎", workouts_20: "🏅",
+};
+
+async function renderAchievements() {
+  const { data } = await api("/api/stats");
+  if (!data.ok) return;
+  state.stats = data;
+
+  document.getElementById("acc-level").textContent = data.level;
+  document.getElementById("acc-streak").textContent = data.longest_streak;
+
+  const grid = document.getElementById("acc-badge-grid");
+  grid.innerHTML = "";
+  data.unlockables.forEach((item) => {
+    const el = document.createElement("div");
+    el.className = "badge-item" + (item.unlocked ? " unlocked" : "");
+    el.title = item.desc;
+    el.innerHTML = `<span class="badge-icon">${BADGE_ICONS[item.id] || "🏆"}</span><span class="badge-name">${item.name}</span>`;
+    grid.appendChild(el);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -611,10 +683,15 @@ function renderMuscleDiagram(muscles = []) {
 
 async function advanceWorkout(exercise, phase) {
   if (phase === "work") {
-    // log calories burned for this segment
+    // log calories burned (and XP/unlocks) for this segment
     api("/api/log-workout", {
       method: "POST",
       body: { exercise_name: exercise.name, category: exercise.category, duration_sec: exercise.duration, met: exercise.met },
+    }).then(({ data }) => {
+      if (data.ok) {
+        (data.newly_unlocked || []).forEach(showUnlockToast);
+        refreshStreakWidget();
+      }
     });
     runStep(exercise, "rest");
     return;

@@ -31,7 +31,7 @@ import secrets
 import logging
 import traceback
 from email.mime.text import MIMEText
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 from flask import Flask, request, jsonify, g, session
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -284,6 +284,23 @@ SCHEMA_POSTGRES = """
         currency TEXT,
         started_at TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS user_stats (
+        user_id INTEGER PRIMARY KEY REFERENCES users(id),
+        xp INTEGER DEFAULT 0,
+        streak_count INTEGER DEFAULT 0,
+        longest_streak INTEGER DEFAULT 0,
+        last_checkin_date TEXT,
+        freeze_available INTEGER DEFAULT 2,
+        freeze_month TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS user_unlocks (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        unlock_id TEXT NOT NULL,
+        unlocked_at TEXT
+    );
 """
 
 SCHEMA_SQLITE = """
@@ -342,6 +359,23 @@ SCHEMA_SQLITE = """
         price REAL,
         currency TEXT,
         started_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS user_stats (
+        user_id INTEGER PRIMARY KEY REFERENCES users(id),
+        xp INTEGER DEFAULT 0,
+        streak_count INTEGER DEFAULT 0,
+        longest_streak INTEGER DEFAULT 0,
+        last_checkin_date TEXT,
+        freeze_available INTEGER DEFAULT 2,
+        freeze_month TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS user_unlocks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        unlock_id TEXT NOT NULL,
+        unlocked_at TEXT
     );
 """
 
@@ -897,6 +931,98 @@ def current_user_plan():
     return row["plan"] if row else "free"
 
 
+# ---------------------------------------------------------------------------
+# Habit / streak / gamification
+# ---------------------------------------------------------------------------
+CHECKIN_XP = 5
+WORKOUT_XP = 10
+MONTHLY_STREAK_FREEZES = 2  # forgiveness credits — miss exactly 1 day and a freeze covers it
+
+LEVEL_TIERS = [
+    ("Bronze", 0),
+    ("Silver", 100),
+    ("Gold", 300),
+    ("Platinum", 700),
+]
+
+# Consistency-first: most of these key off streaks/check-ins, not workout
+# intensity, so beginners who just show up daily see real progress too.
+UNLOCKABLES = [
+    {"id": "first_workout", "name": "First Steps", "desc": "Complete your first workout", "type": "badge",
+     "requirement": {"type": "workouts_total", "value": 1}},
+    {"id": "streak_3", "name": "Getting Going", "desc": "3-day streak", "type": "badge",
+     "requirement": {"type": "streak", "value": 3}},
+    {"id": "streak_7", "name": "Week Warrior", "desc": "7-day streak", "type": "badge",
+     "requirement": {"type": "streak", "value": 7}},
+    {"id": "streak_30", "name": "Month Master", "desc": "30-day streak", "type": "badge",
+     "requirement": {"type": "streak", "value": 30}},
+    {"id": "xp_100", "name": "Rising Star", "desc": "Reach 100 XP (Silver)", "type": "badge",
+     "requirement": {"type": "xp", "value": 100}},
+    {"id": "xp_300", "name": "Dedicated", "desc": "Reach 300 XP (Gold)", "type": "badge",
+     "requirement": {"type": "xp", "value": 300}},
+    {"id": "xp_700", "name": "Unstoppable", "desc": "Reach 700 XP (Platinum)", "type": "badge",
+     "requirement": {"type": "xp", "value": 700}},
+    {"id": "workouts_20", "name": "Regular", "desc": "Log 20 workouts total", "type": "badge",
+     "requirement": {"type": "workouts_total", "value": 20}},
+]
+
+
+def compute_level(xp: int) -> str:
+    level = LEVEL_TIERS[0][0]
+    for name, threshold in LEVEL_TIERS:
+        if xp >= threshold:
+            level = name
+    return level
+
+
+def get_or_create_stats(db, user_id):
+    row = db.execute("SELECT * FROM user_stats WHERE user_id=?", (user_id,)).fetchone()
+    if row:
+        return dict(row)
+    db.execute(
+        "INSERT INTO user_stats (user_id, xp, streak_count, longest_streak, last_checkin_date, freeze_available, freeze_month) "
+        "VALUES (?, 0, 0, 0, NULL, ?, NULL)",
+        (user_id, MONTHLY_STREAK_FREEZES),
+    )
+    db.commit()
+    row = db.execute("SELECT * FROM user_stats WHERE user_id=?", (user_id,)).fetchone()
+    return dict(row)
+
+
+def check_and_grant_unlocks(db, user_id, xp, streak):
+    unlocked_rows = db.execute("SELECT unlock_id FROM user_unlocks WHERE user_id=?", (user_id,)).fetchall()
+    already = {r["unlock_id"] for r in unlocked_rows}
+    workouts_total = None
+    newly_unlocked = []
+
+    for item in UNLOCKABLES:
+        if item["id"] in already:
+            continue
+        req = item["requirement"]
+        met = False
+        if req["type"] == "xp":
+            met = xp >= req["value"]
+        elif req["type"] == "streak":
+            met = streak >= req["value"]
+        elif req["type"] == "workouts_total":
+            if workouts_total is None:
+                workouts_total = db.execute(
+                    "SELECT COUNT(*) AS c FROM workout_log WHERE user_id=?", (user_id,)
+                ).fetchone()["c"]
+            met = workouts_total >= req["value"]
+
+        if met:
+            db.execute(
+                "INSERT INTO user_unlocks (user_id, unlock_id, unlocked_at) VALUES (?, ?, ?)",
+                (user_id, item["id"], now_str()),
+            )
+            newly_unlocked.append(item)
+
+    if newly_unlocked:
+        db.commit()
+    return newly_unlocked
+
+
 @app.get("/api/exercises")
 def get_exercises():
     if current_user_plan() != "free":
@@ -935,7 +1061,21 @@ def log_workout():
         (session["user_id"], data.get("exercise_name"), data.get("category"), duration_sec, calories, now_str()),
     )
     db.commit()
-    return jsonify(ok=True, calories_burned=round(calories, 1))
+
+    stats = get_or_create_stats(db, session["user_id"])
+    new_xp = (stats["xp"] or 0) + WORKOUT_XP
+    db.execute("UPDATE user_stats SET xp=? WHERE user_id=?", (new_xp, session["user_id"]))
+    db.commit()
+    newly_unlocked = check_and_grant_unlocks(db, session["user_id"], new_xp, stats["streak_count"] or 0)
+
+    return jsonify(
+        ok=True,
+        calories_burned=round(calories, 1),
+        xp_gained=WORKOUT_XP,
+        xp=new_xp,
+        level=compute_level(new_xp),
+        newly_unlocked=newly_unlocked,
+    )
 
 
 @app.get("/api/history")
@@ -947,6 +1087,113 @@ def get_history():
         (session["user_id"],),
     ).fetchall()
     return jsonify(ok=True, history=[dict(r) for r in rows])
+
+
+@app.post("/api/checkin")
+def checkin():
+    """Call once per day, right when the app opens — awards check-in XP
+    before the person even starts a workout, and advances the streak.
+    The client sends its own local calendar date (YYYY-MM-DD) since the
+    server can't know the user's timezone; this keeps 'today' correct
+    regardless of where the server runs."""
+    if "user_id" not in session:
+        return jsonify(ok=False, error="Not logged in."), 401
+    data = request.get_json(force=True, silent=True) or {}
+    today_str = (data.get("local_date") or "").strip()
+    try:
+        today = date.fromisoformat(today_str)
+    except ValueError:
+        return jsonify(ok=False, error="Missing or invalid local_date (expected YYYY-MM-DD)."), 400
+
+    db = get_db()
+    stats = get_or_create_stats(db, session["user_id"])
+
+    current_month = today_str[:7]
+    freeze_available = stats["freeze_available"]
+    freeze_month = stats["freeze_month"]
+    if freeze_month != current_month:
+        freeze_available = MONTHLY_STREAK_FREEZES
+        freeze_month = current_month
+
+    already_checked_in_today = stats["last_checkin_date"] == today_str
+    streak = stats["streak_count"] or 0
+    longest = stats["longest_streak"] or 0
+    xp_gained = 0
+    freeze_used = False
+
+    if not already_checked_in_today:
+        gap = None
+        if stats["last_checkin_date"]:
+            try:
+                gap = (today - date.fromisoformat(stats["last_checkin_date"])).days
+            except ValueError:
+                gap = None
+
+        if gap is None:
+            streak = 1
+        elif gap == 1:
+            streak += 1
+        elif gap == 2 and freeze_available > 0:
+            # Missed exactly one day — a freeze forgives it, streak survives.
+            freeze_available -= 1
+            freeze_used = True
+            streak += 1
+        elif gap <= 0:
+            streak = streak or 1  # clock skew safety net; don't crash the streak
+        else:
+            streak = 1  # missed 2+ days with no freeze left — resets
+
+        longest = max(longest, streak)
+        xp_gained = CHECKIN_XP
+
+    new_xp = (stats["xp"] or 0) + xp_gained
+
+    db.execute(
+        """UPDATE user_stats SET xp=?, streak_count=?, longest_streak=?, last_checkin_date=?,
+           freeze_available=?, freeze_month=? WHERE user_id=?""",
+        (new_xp, streak, longest, today_str, freeze_available, freeze_month, session["user_id"]),
+    )
+    db.commit()
+
+    newly_unlocked = check_and_grant_unlocks(db, session["user_id"], new_xp, streak)
+
+    return jsonify(
+        ok=True,
+        already_checked_in_today=already_checked_in_today,
+        xp_gained=xp_gained,
+        xp=new_xp,
+        level=compute_level(new_xp),
+        streak=streak,
+        longest_streak=longest,
+        freeze_available=freeze_available,
+        freeze_used=freeze_used,
+        newly_unlocked=newly_unlocked,
+    )
+
+
+@app.get("/api/stats")
+def get_stats():
+    if "user_id" not in session:
+        return jsonify(ok=False, error="Not logged in."), 401
+    db = get_db()
+    stats = get_or_create_stats(db, session["user_id"])
+    unlocked_rows = db.execute(
+        "SELECT unlock_id, unlocked_at FROM user_unlocks WHERE user_id=?", (session["user_id"],)
+    ).fetchall()
+    unlocked_ids = {r["unlock_id"]: r["unlocked_at"] for r in unlocked_rows}
+    catalog = [
+        {**item, "unlocked": item["id"] in unlocked_ids, "unlocked_at": unlocked_ids.get(item["id"])}
+        for item in UNLOCKABLES
+    ]
+    return jsonify(
+        ok=True,
+        xp=stats["xp"] or 0,
+        level=compute_level(stats["xp"] or 0),
+        streak=stats["streak_count"] or 0,
+        longest_streak=stats["longest_streak"] or 0,
+        freeze_available=stats["freeze_available"] if stats["freeze_available"] is not None else MONTHLY_STREAK_FREEZES,
+        unlockables=catalog,
+    )
 
 
 # ---------------------------------------------------------------------------
