@@ -738,7 +738,7 @@ function renderPlanCards(plans) {
         return;
       }
 
-      const { data: subData } = await api("/api/subscribe", { method: "POST", body: { plan: p.id, price: p.usd, currency: p.currency } });
+      const { data: subData } = await api("/api/subscribe", { method: "POST", body: { plan: p.id, price: p.amount, currency: p.currency } });
       if (!subData.ok) {
         flash("plan-status", subData.error || "Could not start checkout.", "error");
         return;
@@ -764,7 +764,7 @@ function renderPlanCards(plans) {
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_signature: response.razorpay_signature,
               plan: p.id,
-              price: p.usd,
+              price: p.amount,
               currency: p.currency,
             },
           });

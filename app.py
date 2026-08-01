@@ -1160,10 +1160,12 @@ def get_plans():
     plans = []
     for p in BASE_PLANS:
         local_price = p["usd"] * rate * pricing["multiplier"]
+        rounded_price = round(local_price, 2)
         plans.append({
             **p,
-            "price_display": f'{pricing["symbol"]}{local_price:,.0f}' if local_price >= 1 or local_price == 0
-                              else f'{pricing["symbol"]}{local_price:.2f}',
+            "amount": rounded_price,
+            "price_display": f'{pricing["symbol"]}{rounded_price:,.0f}' if rounded_price >= 1 or rounded_price == 0
+                              else f'{pricing["symbol"]}{rounded_price:.2f}',
             "currency": currency,
         })
     return jsonify(ok=True, country=country, plans=plans)
