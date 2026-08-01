@@ -494,12 +494,6 @@ h3 { font-size: 22px; }
 .splash { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; gap: 18px; }
 .splash-mark { font-family: var(--font-display); font-size: 40px; letter-spacing: 0.03em; opacity: 0; animation: fadeUp 0.8s var(--ease) forwards 0.2s; }
 
-.splash .app-logo-card {
-  margin-bottom: 26px;
-  opacity: 0;
-  animation: fadeUp 0.8s var(--ease) forwards 0.2s;
-}
-
 @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 .splash-bar { width: 120px; height: 3px; background: var(--bg-card); border-radius: 3px; overflow: hidden; }
 .splash-bar::after { content: ''; display: block; height: 100%; width: 40%; background: var(--volt); animation: loadSweep 1.1s ease-in-out infinite; }
