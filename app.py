@@ -1218,7 +1218,10 @@ def subscribe():
         })
     except Exception as exc:
         logger.error("Razorpay order creation failed: %s", exc)
-        return jsonify(ok=False, error=f"Could not start checkout: {exc}"), 502
+        msg = str(exc)
+        if "Authentication" in msg or "auth" in msg.lower():
+            msg = "Razorpay test auth failed. Please confirm that the key pair in .env is valid for the current Razorpay account and is being used from a secure HTTPS origin."
+        return jsonify(ok=False, error=f"Could not start checkout: {msg}"), 502
 
     return jsonify(
         ok=True,

@@ -776,10 +776,19 @@ function renderPlanCards(plans) {
           }
         },
         prefill: { email: state.user?.identifier || "" },
-        theme: { color: "#8B7BFF" }
+        theme: { color: "#8B7BFF" },
+        modal: {
+          ondismiss: () => {
+            flash("plan-status", "Payment was cancelled in the Razorpay popup.", "error");
+          },
+        },
       };
-      const razorpay = new window.Razorpay(options);
-      razorpay.open();
+      try {
+        const razorpay = new window.Razorpay(options);
+        razorpay.open();
+      } catch (err) {
+        flash("plan-status", "Razorpay checkout could not open from this browser session.", "error");
+      }
     });
     wrap.appendChild(card);
   });
