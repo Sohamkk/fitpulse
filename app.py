@@ -30,7 +30,6 @@ import secrets
 import logging
 import traceback
 from email.mime.text import MIMEText
-from urllib.parse import quote
 from datetime import datetime, timedelta
 
 from flask import Flask, request, jsonify, g, session
@@ -109,22 +108,6 @@ PHONE_RE = re.compile(r"^\+?[0-9]{8,15}$")
 # --- Payments (Razorpay) ---
 RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
 RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
-USE_QR_PAYMENT = os.environ.get("USE_QR_PAYMENT", "1") == "1"
-UPI_VPA = os.environ.get("UPI_VPA", "fitpulse@upi")
-UPI_NAME = os.environ.get("UPI_NAME", "FitPulse")
-
-
-def build_upi_qr_code(amount: float, currency: str, plan: str) -> str:
-    if not UPI_VPA:
-        return ""
-    upi_url = (
-        f"upi://pay?pa={quote(UPI_VPA)}"
-        f"&pn={quote(UPI_NAME)}"
-        f"&am={float(amount):.2f}"
-        f"&cu={quote(currency)}"
-        f"&tn={quote(f'FitPulse {plan}') }"
-    )
-    return f"https://api.qrserver.com/v1/create-qr-code/?data={quote(upi_url, safe='')}&size=260x260&format=png"
 
 
 def get_razorpay_client():
@@ -1218,34 +1201,14 @@ def subscribe():
     # user's plan is NOT changed yet — that only happens once /api/verify-payment
     # confirms a real, signature-verified payment. This is what stops the
     # plan/price shown to Razorpay's charging money.
-    amount_paise = int(round(float(price) * 100))  # Razorpay expects the smallest currency unit
-    qr_code_url = build_upi_qr_code(price, currency, plan)
-
-    if USE_QR_PAYMENT:
-        return jsonify(
-            ok=True,
-            requires_payment=True,
-            payment_method="qr",
-            amount=float(price),
-            currency=currency,
-            qr_code_url=qr_code_url,
-            plan=plan,
-            message="Scan the QR code with any UPI app, then confirm payment in the app.",
-        )
-
     client = get_razorpay_client()
     if not client:
         return jsonify(
-            ok=True,
-            requires_payment=True,
-            payment_method="qr",
-            amount=float(price),
-            currency=currency,
-            qr_code_url=qr_code_url,
-            plan=plan,
-            message="Razorpay is not available in this environment. Scan the QR code to pay and then confirm your payment in the app.",
-        )
+            ok=False,
+            error="Payments aren't configured on the server yet (missing RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET, or the razorpay package isn't installed).",
+        ), 502
 
+    amount_paise = int(round(float(price) * 100))  # Razorpay expects the smallest currency unit
     try:
         order = client.order.create({
             "amount": amount_paise,
@@ -1255,16 +1218,7 @@ def subscribe():
         })
     except Exception as exc:
         logger.error("Razorpay order creation failed: %s", exc)
-        return jsonify(
-            ok=True,
-            requires_payment=True,
-            payment_method="qr",
-            amount=float(price),
-            currency=currency,
-            qr_code_url=qr_code_url,
-            plan=plan,
-            message=f"Razorpay checkout could not be started in this browser. Use the QR code fallback instead.",
-        )
+        return jsonify(ok=False, error=f"Could not start checkout: {exc}"), 502
 
     return jsonify(
         ok=True,
@@ -1293,17 +1247,6 @@ def verify_payment():
     plan = data.get("plan")
     price = data.get("price", 0)
     currency = data.get("currency", "INR")
-    manual_confirmation = data.get("manual_confirmation") is True
-
-    if manual_confirmation:
-        db = get_db()
-        db.execute(
-            "INSERT INTO subscriptions (user_id, plan, price, currency, started_at) VALUES (?, ?, ?, ?, ?)",
-            (session["user_id"], plan, price, currency, now_str()),
-        )
-        db.execute("UPDATE users SET plan=? WHERE id=?", (plan, session["user_id"]))
-        db.commit()
-        return jsonify(ok=True, message=f"Payment confirmed manually — subscribed to {plan}." )
 
     if not (order_id and payment_id and signature and plan):
         return jsonify(ok=False, error="Missing payment details."), 400

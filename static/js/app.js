@@ -744,35 +744,6 @@ function renderPlanCards(plans) {
         return;
       }
 
-      if (subData.payment_method === "qr" || subData.qr_code_url) {
-        flash("plan-status", `${subData.message || "Scan the QR code and confirm payment manually."}`, "success");
-        document.getElementById("plan-status").insertAdjacentHTML(
-          "beforeend",
-          `<div style="margin-top:14px; display:flex; flex-direction:column; gap:12px; align-items:center;">
-            <img src="${subData.qr_code_url}" alt="UPI QR payment code" style="width:220px; height:220px; background:#fff; padding:10px; border-radius:12px;">
-            <button id="confirm-qr-payment" class="btn btn-primary" style="width:100%;">I have paid</button>
-          </div>`
-        );
-        document.getElementById("confirm-qr-payment").addEventListener("click", async () => {
-          const { data: verifyData } = await api("/api/verify-payment", {
-            method: "POST",
-            body: {
-              manual_confirmation: true,
-              plan: p.id,
-              price: p.amount,
-              currency: p.currency,
-            },
-          });
-          if (verifyData.ok) {
-            flash("plan-status", verifyData.message || `Payment confirmed — subscribed to ${p.name}.`, "success");
-            await refreshAfterPlanChange();
-          } else {
-            flash("plan-status", verifyData.error || "Payment could not be confirmed manually.", "error");
-          }
-        });
-        return;
-      }
-
       if (!subData.razorpay_key_id || !window.Razorpay) {
         flash("plan-status", "Checkout is not configured yet. Your plan change was recorded locally.", "success");
         return;
@@ -807,12 +778,8 @@ function renderPlanCards(plans) {
         prefill: { email: state.user?.identifier || "" },
         theme: { color: "#8B7BFF" }
       };
-      try {
-        const razorpay = new window.Razorpay(options);
-        razorpay.open();
-      } catch (error) {
-        flash("plan-status", "Razorpay popup could not be opened in this browser. Scan the QR code to complete payment manually.", "error");
-      }
+      const razorpay = new window.Razorpay(options);
+      razorpay.open();
     });
     wrap.appendChild(card);
   });
