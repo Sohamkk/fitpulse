@@ -543,18 +543,9 @@ function renderCategoryChips() {
 function renderExerciseList(catKey) {
   const cat = state.categories[catKey];
   const list = document.getElementById("exercise-list");
-  const banner = document.getElementById("exercise-category-banner");
   const startAllBtn = document.getElementById("start-category-btn");
 
   list.innerHTML = "";
-  banner.classList.remove("hidden");
-  banner.innerHTML = `
-    <div>
-      <div class="eyebrow">Selected group</div>
-      <div class="exercise-category-title">${cat.label}</div>
-    </div>
-    <div class="exercise-category-count">${cat.items.length || 0} exercises</div>
-  `;
 
   if (cat.locked) {
     const prompt = document.createElement("div");
