@@ -793,19 +793,25 @@ async function refreshAfterPlanChange() {
 
 function renderPlanCards(plans) {
   const wrap = document.getElementById("plans-list");
+  const currentPlan = (state.user?.plan || "free").toLowerCase();
   wrap.innerHTML = "";
   plans.forEach((p) => {
+    const isCurrentPlan = p.id === currentPlan;
     const card = document.createElement("div");
-    card.className = "plan-card" + (p.id === "premium" ? " recommended" : "");
+    card.className = "plan-card" + (p.id === "premium" ? " recommended" : "") + (isCurrentPlan ? " active" : "");
     card.innerHTML = `
       ${p.id === "premium" ? '<div class="plan-badge">Most popular</div>' : ""}
       <div class="plan-name">${p.name}</div>
       <div class="plan-price">${p.price_display}<span> / ${p.period}</span></div>
       <ul class="plan-features">${p.features.map((f) => `<li>${f}</li>`).join("")}</ul>
-      <button class="btn ${p.id === "free" ? "btn-ghost" : "btn-primary"}" style="margin-top:16px;">
-        ${p.id === "free" ? "Current plan" : "Choose " + p.name}
+      <button class="btn ${isCurrentPlan ? "btn-ghost" : p.id === "free" ? "btn-ghost" : "btn-primary"}" style="margin-top:16px;">
+        ${isCurrentPlan ? "Current plan" : "Choose " + p.name}
       </button>`;
     card.querySelector("button").addEventListener("click", async () => {
+      if (p.id === currentPlan) {
+        flash("plan-status", `You're already on ${p.name}.`, "success");
+        return;
+      }
       if (p.id === "free") {
         const { data: subData } = await api("/api/subscribe", { method: "POST", body: { plan: p.id, price: 0, currency: p.currency } });
         if (subData.ok) {

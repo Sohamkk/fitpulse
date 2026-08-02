@@ -520,6 +520,11 @@ h3 { font-size: 22px; }
   padding: 22px; margin-bottom: 14px; position: relative; transition: border-color 0.2s var(--ease), transform 0.15s var(--ease);
 }
 .plan-card.recommended { border-color: var(--volt); background: linear-gradient(160deg, rgba(199,244,100,0.08), var(--bg-card) 60%); }
+.plan-card.active {
+  border-color: var(--volt);
+  box-shadow: 0 0 0 1px rgba(199, 244, 100, 0.28), 0 10px 28px rgba(0, 0, 0, 0.18);
+  background: linear-gradient(160deg, rgba(199,244,100,0.12), var(--bg-card) 66%);
+}
 .plan-card:active { transform: scale(0.99); }
 .plan-badge { position: absolute; top: -11px; right: 20px; background: var(--volt); color: #101310; font-size: 10px; font-weight: 800; padding: 5px 12px; border-radius: 999px; letter-spacing: 0.04em; }
 .plan-name { font-family: var(--font-display); font-size: 26px; }
