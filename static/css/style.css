@@ -531,7 +531,8 @@ h3 { font-size: 22px; }
 .muscle-diagram-legend { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); text-align: center; text-transform: uppercase; letter-spacing: 0.04em; }
 .muscle-diagram-legend .active-label { color: var(--volt); }
 
-.timer-controls { display: flex; gap: 14px; margin-top: 28px; width: 100%; }
+.timer-controls { display: flex; gap: 14px; margin-top: 28px; width: 100%; align-items: center; }
+#timer-start-btn { min-width: 94px; }
 .timer-icon-btn { width: 56px; height: 56px; border-radius: 50%; background: var(--bg-card); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; }
 .timer-progress-dots { display: flex; gap: 6px; margin-top: 20px; }
 .timer-progress-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--border); }

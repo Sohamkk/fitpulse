@@ -11,6 +11,8 @@ const state = {
   timerSeconds: 0,
   timerTotal: 0,
   isResting: false,
+  timerRunning: false,
+  timerPaused: false,
   country: "IN",
   editingProfile: false,
   foodCategories: null,
@@ -564,7 +566,7 @@ function renderExerciseList(catKey) {
         <span class="exercise-dot" style="background:${cat.color}"></span>
         <div>
           <div class="exercise-name">${ex.name}</div>
-          <div class="exercise-sub">${ex.duration}s work · ${ex.rest}s rest · ~${estCalories(ex)} kcal</div>
+          <div class="exercise-sub">${ex.duration}s work · ${ex.rest}s rest · ${ex.equipment || "Bodyweight"} · ~${estCalories(ex)} kcal</div>
         </div>
       </div>
       <div class="exercise-go">→</div>`;
@@ -642,9 +644,12 @@ function renderMissionBanner(exercise, phase) {
 function startWorkout(catKey, items) {
   state.workoutQueue = items.map((it) => ({ ...it, category: catKey }));
   state.workoutIndex = 0;
+  state.timerRunning = false;
+  state.timerPaused = false;
   showScreen("screen-timer");
   renderTimerDots();
-  runStep(state.workoutQueue[0], "work");
+  prepareStep(state.workoutQueue[0], "work");
+  updateTimerControls();
 }
 
 function renderTimerDots() {
@@ -658,8 +663,11 @@ function renderTimerDots() {
   });
 }
 
-function runStep(exercise, phase) {
+function prepareStep(exercise, phase) {
   clearInterval(state.timerHandle);
+  state.timerHandle = null;
+  state.timerRunning = false;
+  state.timerPaused = false;
   let duration = phase === "work" ? exercise.duration : exercise.rest;
   if (phase === "rest") {
     duration = Math.max(5, duration + (state.restAdjustSeconds || 0));
@@ -680,15 +688,39 @@ function runStep(exercise, phase) {
   document.querySelectorAll("#muscle-diagram .body-svg").forEach((svg) => svg.classList.toggle("glowing", phase === "work"));
 
   updateRing();
+}
 
+function updateTimerControls() {
+  const startBtn = document.getElementById("timer-start-btn");
+  const pauseBtn = document.getElementById("timer-pause-btn");
+  if (!startBtn || !pauseBtn) return;
+  startBtn.disabled = state.timerRunning;
+  startBtn.textContent = state.timerRunning ? "Running…" : state.timerPaused ? "Resume" : "Start";
+  pauseBtn.textContent = state.timerPaused ? "▶" : "⏸";
+}
+
+function startCurrentTimer() {
+  const ex = state.workoutQueue[state.workoutIndex];
+  if (!ex || state.timerRunning) return;
+  state.timerRunning = true;
+  state.timerPaused = false;
+  updateTimerControls();
   state.timerHandle = setInterval(() => {
     state.timerSeconds -= 1;
     updateRing();
     if (state.timerSeconds <= 0) {
       clearInterval(state.timerHandle);
-      advanceWorkout(exercise, phase);
+      state.timerHandle = null;
+      state.timerRunning = false;
+      state.timerPaused = false;
+      advanceWorkout(ex, state.isResting ? "rest" : "work");
     }
   }, 1000);
+}
+
+function runStep(exercise, phase) {
+  prepareStep(exercise, phase);
+  updateTimerControls();
 }
 
 function updateRing() {
@@ -745,6 +777,10 @@ async function advanceWorkout(exercise, phase) {
 }
 
 function finishWorkout() {
+  clearInterval(state.timerHandle);
+  state.timerHandle = null;
+  state.timerRunning = false;
+  state.timerPaused = false;
   document.getElementById("timer-exercise-name").textContent = "Workout complete";
   document.getElementById("timer-label").textContent = "Nice work";
   document.getElementById("timer-value").textContent = "✓";
@@ -755,11 +791,19 @@ function finishWorkout() {
   document.getElementById("mission-line").textContent = "Every door unlocked. Well done.";
   document.getElementById("mission-progress-fill").style.width = "100%";
   renderMuscleDiagram([]);
+  updateTimerControls();
   updateWorkoutsToday();
 }
 
+document.getElementById("timer-start-btn").addEventListener("click", () => {
+  startCurrentTimer();
+});
+
 document.getElementById("timer-easy-btn").addEventListener("click", () => {
   clearInterval(state.timerHandle);
+  state.timerHandle = null;
+  state.timerRunning = false;
+  state.timerPaused = false;
   const ex = state.workoutQueue[state.workoutIndex];
   if (!ex) return;
   if (!state.isResting) state.restAdjustSeconds = -5; // felt easy → shorter recovery next
@@ -768,26 +812,30 @@ document.getElementById("timer-easy-btn").addEventListener("click", () => {
 
 document.getElementById("timer-hard-btn").addEventListener("click", () => {
   clearInterval(state.timerHandle);
+  state.timerHandle = null;
+  state.timerRunning = false;
+  state.timerPaused = false;
   const ex = state.workoutQueue[state.workoutIndex];
   if (!ex) return;
   if (!state.isResting) state.restAdjustSeconds = 15; // felt hard → longer recovery next
   advanceWorkout(ex, state.isResting ? "rest" : "work");
 });
 
-document.getElementById("timer-pause-btn").addEventListener("click", (e) => {
+document.getElementById("timer-pause-btn").addEventListener("click", () => {
   if (state.timerHandle) {
     clearInterval(state.timerHandle);
     state.timerHandle = null;
-    e.target.textContent = "▶";
-  } else {
-    const ex = state.workoutQueue[state.workoutIndex];
-    state.timerHandle = setInterval(() => {
-      state.timerSeconds -= 1;
-      updateRing();
-      if (state.timerSeconds <= 0) { clearInterval(state.timerHandle); advanceWorkout(ex, state.isResting ? "rest" : "work"); }
-    }, 1000);
-    e.target.textContent = "⏸";
+    state.timerRunning = false;
+    state.timerPaused = true;
+    updateTimerControls();
+    return;
   }
+  if (state.timerPaused) {
+    state.timerPaused = false;
+    startCurrentTimer();
+    return;
+  }
+  startCurrentTimer();
 });
 
 // ---------------------------------------------------------------------------
