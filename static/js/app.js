@@ -530,6 +530,7 @@ function renderCategoryChips() {
     const chip = document.createElement("button");
     chip.className = "category-chip" + (key === state.activeCategory ? " active" : "");
     chip.textContent = cat.locked ? `🔒 ${cat.label}` : cat.label;
+    chip.setAttribute("aria-pressed", String(key === state.activeCategory));
     chip.addEventListener("click", () => {
       state.activeCategory = key;
       renderCategoryChips();
@@ -544,6 +545,17 @@ function renderExerciseList(catKey) {
   const list = document.getElementById("exercise-list");
   list.innerHTML = "";
   const startAllBtn = document.getElementById("start-category-btn");
+
+  const header = document.createElement("div");
+  header.className = "exercise-category-banner";
+  header.innerHTML = `
+    <div>
+      <div class="eyebrow">Selected group</div>
+      <div class="exercise-category-title">${cat.label}</div>
+    </div>
+    <div class="exercise-category-count">${cat.items.length} exercises</div>
+  `;
+  list.appendChild(header);
 
   if (cat.locked) {
     list.innerHTML = `

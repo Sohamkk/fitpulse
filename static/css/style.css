@@ -377,7 +377,36 @@ h3 { font-size: 22px; }
   scroll-snap-align: start;
   transition: all 0.2s var(--ease);
 }
-.category-chip.active { background: var(--volt); color: #101310; border-color: var(--volt); }
+.category-chip.active {
+  background: linear-gradient(135deg, rgba(199,244,100,0.95), rgba(199,244,100,0.82));
+  color: #101310;
+  border-color: var(--volt);
+  box-shadow: 0 6px 18px rgba(199, 244, 100, 0.22);
+}
+
+.exercise-category-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(139,123,255,0.12), rgba(199,244,100,0.08));
+  border: 1px solid rgba(139,123,255,0.2);
+}
+.exercise-category-title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  margin-top: 3px;
+}
+.exercise-category-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
 
 .exercise-card {
   display: flex; align-items: center; justify-content: space-between;
