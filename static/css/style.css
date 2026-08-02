@@ -74,6 +74,16 @@ a { color: inherit; text-decoration: none; }
   gap: 12px;
 }
 
+#screen-exercises {
+  gap: 0;
+}
+
+#screen-exercises #exercise-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 #screen-diet .field {
   margin-bottom: 0;
 }
