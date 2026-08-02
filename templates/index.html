@@ -155,6 +155,21 @@
     <button class="link-btn" id="timer-exit-btn" style="align-self:flex-start;">← Exit</button>
     <div class="timer-wrap">
 
+      <div class="mission-banner" id="mission-banner">
+        <div class="mission-title" id="mission-title">MISSION</div>
+        <div class="mission-line" id="mission-line">Get ready…</div>
+      </div>
+      <div class="mission-progress-track">
+        <div class="mission-progress-fill" id="mission-progress-fill"></div>
+      </div>
+
+      <button class="aura-toggle-btn" id="aura-toggle-btn">✨ Enable energy aura (camera)</button>
+      <div class="aura-wrap" id="aura-wrap" style="display:none;">
+        <canvas id="aura-canvas" width="260" height="260"></canvas>
+        <video id="aura-video" autoplay playsinline muted style="display:none;"></video>
+        <div class="aura-note" id="aura-note">Reading your movement…</div>
+      </div>
+
       <div class="timer-ring-container" id="timer-ring-container">
         <svg viewBox="0 0 260 260">
           <circle class="ring-bg" cx="130" cy="130" r="120"></circle>
@@ -211,7 +226,8 @@
       <div class="timer-progress-dots" id="timer-dots"></div>
       <div class="timer-controls">
         <button class="timer-icon-btn" id="timer-pause-btn">⏸</button>
-        <button class="btn btn-primary" id="timer-skip-btn" style="flex:1;">Skip</button>
+        <button class="btn btn-difficulty easy" id="timer-easy-btn">😌 Too Easy</button>
+        <button class="btn btn-difficulty hard" id="timer-hard-btn">🥵 Too Hard</button>
       </div>
     </div>
   </div>

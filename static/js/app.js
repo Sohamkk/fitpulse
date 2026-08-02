@@ -19,6 +19,7 @@ const state = {
   caloriesBurnedToday: 0,
   dietLocked: false,
   stats: null,
+  restAdjustSeconds: 0,
 };
 
 // ---------------------------------------------------------------------------
@@ -607,6 +608,37 @@ function renderDashboardPreview() {
 const RING_RADIUS = 120;
 const RING_CIRC = 2 * Math.PI * RING_RADIUS;
 
+const MISSION_THEMES = {
+  cardio: { title: "🚨 THE CHASE", verb: "outrun the alarm" },
+  strength: { title: "🔐 THE VAULT", verb: "force the door" },
+  hiit: { title: "💣 THE COUNTDOWN", verb: "defuse it in time" },
+  yoga: { title: "🏛️ THE SANCTUARY", verb: "calm the guardian" },
+  stretching: { title: "🧊 THE COOLDOWN CHAMBER", verb: "reset before the next heist" },
+  chest: { title: "⚒️ THE FORGE", verb: "power the mechanism" },
+  triceps: { title: "⚒️ THE FORGE", verb: "power the mechanism" },
+  back: { title: "⚒️ THE FORGE", verb: "power the mechanism" },
+  biceps: { title: "⚒️ THE FORGE", verb: "power the mechanism" },
+  shoulders: { title: "⚒️ THE FORGE", verb: "power the mechanism" },
+  traps: { title: "⚒️ THE FORGE", verb: "power the mechanism" },
+  forearms: { title: "⚒️ THE FORGE", verb: "power the mechanism" },
+  abs: { title: "⚒️ THE FORGE", verb: "power the mechanism" },
+};
+
+function renderMissionBanner(exercise, phase) {
+  const theme = MISSION_THEMES[exercise.category] || { title: "🎯 THE MISSION", verb: "complete the objective" };
+  document.getElementById("mission-title").textContent = theme.title;
+  const doorNum = state.workoutIndex + 1;
+  const doorTotal = state.workoutQueue.length;
+  if (phase === "work") {
+    document.getElementById("mission-line").textContent =
+      `Door ${doorNum} of ${doorTotal} — ${exercise.duration}s of ${exercise.name} to ${theme.verb}.`;
+  } else {
+    document.getElementById("mission-line").textContent = `Door ${doorNum} unlocked. Catch your breath before the next one.`;
+  }
+  const pct = Math.round((state.workoutIndex / doorTotal) * 100);
+  document.getElementById("mission-progress-fill").style.width = pct + "%";
+}
+
 function startWorkout(catKey, items) {
   state.workoutQueue = items.map((it) => ({ ...it, category: catKey }));
   state.workoutIndex = 0;
@@ -628,7 +660,11 @@ function renderTimerDots() {
 
 function runStep(exercise, phase) {
   clearInterval(state.timerHandle);
-  const duration = phase === "work" ? exercise.duration : exercise.rest;
+  let duration = phase === "work" ? exercise.duration : exercise.rest;
+  if (phase === "rest") {
+    duration = Math.max(5, duration + (state.restAdjustSeconds || 0));
+    state.restAdjustSeconds = 0;
+  }
   state.timerTotal = duration;
   state.timerSeconds = duration;
   state.isResting = phase === "rest";
@@ -640,6 +676,8 @@ function runStep(exercise, phase) {
   document.getElementById("timer-label").textContent = phase === "work" ? "Work" : "Recover";
   document.getElementById("timer-ring-container").classList.toggle("breathing", state.isResting);
   renderMuscleDiagram(phase === "work" ? exercise.muscles : []);
+  renderMissionBanner(exercise, phase);
+  document.querySelectorAll("#muscle-diagram .body-svg").forEach((svg) => svg.classList.toggle("glowing", phase === "work"));
 
   updateRing();
 
@@ -712,14 +750,27 @@ function finishWorkout() {
   document.getElementById("timer-value").textContent = "✓";
   document.getElementById("ring-progress").style.strokeDashoffset = 0;
   document.getElementById("timer-ring-container").classList.remove("breathing");
+  document.querySelectorAll("#muscle-diagram .body-svg").forEach((svg) => svg.classList.remove("glowing"));
+  document.getElementById("mission-title").textContent = "🏁 MISSION COMPLETE";
+  document.getElementById("mission-line").textContent = "Every door unlocked. Well done.";
+  document.getElementById("mission-progress-fill").style.width = "100%";
   renderMuscleDiagram([]);
   updateWorkoutsToday();
 }
 
-document.getElementById("timer-skip-btn").addEventListener("click", () => {
+document.getElementById("timer-easy-btn").addEventListener("click", () => {
   clearInterval(state.timerHandle);
   const ex = state.workoutQueue[state.workoutIndex];
   if (!ex) return;
+  if (!state.isResting) state.restAdjustSeconds = -5; // felt easy → shorter recovery next
+  advanceWorkout(ex, state.isResting ? "rest" : "work");
+});
+
+document.getElementById("timer-hard-btn").addEventListener("click", () => {
+  clearInterval(state.timerHandle);
+  const ex = state.workoutQueue[state.workoutIndex];
+  if (!ex) return;
+  if (!state.isResting) state.restAdjustSeconds = 15; // felt hard → longer recovery next
   advanceWorkout(ex, state.isResting ? "rest" : "work");
 });
 
@@ -739,8 +790,106 @@ document.getElementById("timer-pause-btn").addEventListener("click", (e) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// AR camera "energy aura" — client-side only, nothing is ever uploaded.
+// Approach: sample small video frames, measure frame-to-frame pixel change
+// as a cheap motion-intensity proxy, and render a glow that grows with it.
+// This tracks how much you're moving, not exact exercise form — an honest
+// v1 "energy meter" rather than a full pose-estimation system.
+// ---------------------------------------------------------------------------
+let auraStream = null;
+let auraRAF = null;
+let auraSmoothed = 0;
+let auraPrevFrame = null;
+const auraSampleCanvas = document.createElement("canvas");
+auraSampleCanvas.width = 32;
+auraSampleCanvas.height = 32;
+const auraSampleCtx = auraSampleCanvas.getContext("2d", { willReadFrequently: true });
+
+async function startAura() {
+  const video = document.getElementById("aura-video");
+  const note = document.getElementById("aura-note");
+  try {
+    auraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+  } catch (err) {
+    note.textContent = "Camera permission denied or unavailable.";
+    document.getElementById("aura-toggle-btn").classList.remove("active");
+    document.getElementById("aura-wrap").style.display = "none";
+    return false;
+  }
+  video.srcObject = auraStream;
+  document.getElementById("aura-wrap").style.display = "flex";
+  note.textContent = "Reading your movement…";
+  auraSmoothed = 0;
+  auraPrevFrame = null;
+  auraLoop();
+  return true;
+}
+
+function stopAura() {
+  if (auraRAF) cancelAnimationFrame(auraRAF);
+  auraRAF = null;
+  if (auraStream) {
+    auraStream.getTracks().forEach((t) => t.stop());
+    auraStream = null;
+  }
+  document.getElementById("aura-wrap").style.display = "none";
+  document.getElementById("aura-toggle-btn").classList.remove("active");
+}
+
+function auraLoop() {
+  const video = document.getElementById("aura-video");
+  const canvas = document.getElementById("aura-canvas");
+  const ctx = canvas.getContext("2d");
+
+  if (video.readyState >= 2) {
+    auraSampleCtx.drawImage(video, 0, 0, 32, 32);
+    const frame = auraSampleCtx.getImageData(0, 0, 32, 32).data;
+
+    let motion = 0;
+    if (auraPrevFrame) {
+      for (let i = 0; i < frame.length; i += 4) {
+        motion += Math.abs(frame[i] - auraPrevFrame[i]);
+      }
+      motion = motion / (32 * 32); // avg per-pixel change, 0-255ish
+    }
+    auraPrevFrame = frame;
+
+    // smooth so the aura breathes instead of flickering
+    auraSmoothed = auraSmoothed * 0.85 + motion * 0.15;
+    const intensity = Math.min(1, auraSmoothed / 18); // calibrated for typical webcam motion
+
+    ctx.clearRect(0, 0, 260, 260);
+    const radius = 60 + intensity * 70;
+    const grad = ctx.createRadialGradient(130, 130, 10, 130, 130, radius);
+    const hue = 80 - intensity * 20; // volt-lime, shifts slightly hotter as intensity climbs
+    grad.addColorStop(0, `hsla(${hue}, 90%, 65%, ${0.15 + intensity * 0.55})`);
+    grad.addColorStop(1, `hsla(${hue}, 90%, 55%, 0)`);
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(130, 130, radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    const note = document.getElementById("aura-note");
+    note.textContent = intensity > 0.6 ? "🔥 Energy surging!" : intensity > 0.25 ? "Building energy…" : "Keep moving to charge up";
+  }
+
+  auraRAF = requestAnimationFrame(auraLoop);
+}
+
+document.getElementById("aura-toggle-btn").addEventListener("click", async (e) => {
+  if (auraStream) {
+    stopAura();
+    return;
+  }
+  e.target.classList.add("active");
+  const ok = await startAura();
+  if (ok) e.target.classList.add("active");
+});
+
 document.getElementById("timer-exit-btn").addEventListener("click", () => {
   clearInterval(state.timerHandle);
+  stopAura();
   showScreen("screen-dashboard");
 });
 
@@ -793,25 +942,19 @@ async function refreshAfterPlanChange() {
 
 function renderPlanCards(plans) {
   const wrap = document.getElementById("plans-list");
-  const currentPlan = (state.user?.plan || "free").toLowerCase();
   wrap.innerHTML = "";
   plans.forEach((p) => {
-    const isCurrentPlan = p.id === currentPlan;
     const card = document.createElement("div");
-    card.className = "plan-card" + (p.id === "premium" ? " recommended" : "") + (isCurrentPlan ? " active" : "");
+    card.className = "plan-card" + (p.id === "premium" ? " recommended" : "");
     card.innerHTML = `
       ${p.id === "premium" ? '<div class="plan-badge">Most popular</div>' : ""}
       <div class="plan-name">${p.name}</div>
       <div class="plan-price">${p.price_display}<span> / ${p.period}</span></div>
       <ul class="plan-features">${p.features.map((f) => `<li>${f}</li>`).join("")}</ul>
-      <button class="btn ${isCurrentPlan ? "btn-ghost" : p.id === "free" ? "btn-ghost" : "btn-primary"}" style="margin-top:16px;">
-        ${isCurrentPlan ? "Current plan" : "Choose " + p.name}
+      <button class="btn ${p.id === "free" ? "btn-ghost" : "btn-primary"}" style="margin-top:16px;">
+        ${p.id === "free" ? "Current plan" : "Choose " + p.name}
       </button>`;
     card.querySelector("button").addEventListener("click", async () => {
-      if (p.id === currentPlan) {
-        flash("plan-status", `You're already on ${p.name}.`, "success");
-        return;
-      }
       if (p.id === "free") {
         const { data: subData } = await api("/api/subscribe", { method: "POST", body: { plan: p.id, price: 0, currency: p.currency } });
         if (subData.ok) {
