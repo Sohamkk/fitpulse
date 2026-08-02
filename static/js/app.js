@@ -571,9 +571,13 @@ function renderExerciseList(catKey) {
         <div>
           <div class="exercise-name">${ex.name}</div>
           <div class="exercise-sub">${ex.duration}s work · ${ex.rest}s rest · ${ex.equipment || "Bodyweight"} · ~${estCalories(ex)} kcal</div>
+          ${ex.link ? `<a href="${ex.link}" target="_blank" rel="noopener" class="exercise-link">📖 How to guide ↗</a>` : ""}
         </div>
       </div>
       <div class="exercise-go">→</div>`;
+    if (ex.link) {
+      card.querySelector(".exercise-link").addEventListener("click", (e) => e.stopPropagation());
+    }
     card.addEventListener("click", () => startWorkout(catKey, [ex]));
     list.appendChild(card);
   });

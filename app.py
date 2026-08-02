@@ -845,10 +845,15 @@ EXERCISES = {
         "label": "Chest",
         "color": "#FF9166",
         "items": [
+            {"name": "Bench Press", "duration": 45, "rest": 25, "met": 6.0, "muscles": ["chest", "shoulders", "triceps"], "equipment": "Barbell", "link": "https://www.strengthlog.com/bench-press/"},
+            {"name": "Incline Dumbbell Press", "duration": 40, "rest": 20, "met": 5.5, "muscles": ["chest", "shoulders", "triceps"], "equipment": "Dumbbells", "link": "https://www.strengthlog.com/dumbbell-incline-press/"},
+            {"name": "Dumbbell Bench Press", "duration": 40, "rest": 20, "met": 5.8, "muscles": ["chest", "shoulders", "triceps"], "equipment": "Dumbbells"},
             {"name": "Incline Push-ups", "duration": 40, "rest": 20, "met": 5.0, "muscles": ["chest", "shoulders", "triceps"], "equipment": "Bench / bodyweight"},
             {"name": "Wide Push-ups", "duration": 40, "rest": 20, "met": 5.5, "muscles": ["chest", "shoulders"], "equipment": "Bodyweight"},
             {"name": "Chest Dips (chair)", "duration": 30, "rest": 25, "met": 6.0, "muscles": ["chest", "triceps", "shoulders"], "equipment": "Dip station / chair"},
             {"name": "Machine Chest Press", "duration": 45, "rest": 20, "met": 5.2, "muscles": ["chest", "shoulders", "triceps"], "equipment": "Chest press machine"},
+            {"name": "Pec Deck Fly", "duration": 35, "rest": 15, "met": 3.8, "muscles": ["chest"], "equipment": "Pec deck machine"},
+            {"name": "Cable Crossover", "duration": 35, "rest": 20, "met": 4.0, "muscles": ["chest", "shoulders"], "equipment": "Cable machine"},
         ],
     },
     "triceps": {
@@ -879,10 +884,13 @@ EXERCISES = {
         "label": "Biceps",
         "color": "#C77DFF",
         "items": [
+            {"name": "Barbell Curl", "duration": 35, "rest": 20, "met": 3.5, "muscles": ["biceps", "forearms"], "equipment": "Barbell", "link": "https://www.strengthlog.com/barbell-curl/"},
+            {"name": "Dumbbell Curl", "duration": 35, "rest": 20, "met": 3.3, "muscles": ["biceps", "forearms"], "equipment": "Dumbbells", "link": "https://www.strengthlog.com/dumbbell-curl/"},
+            {"name": "Hammer Curl", "duration": 35, "rest": 20, "met": 3.4, "muscles": ["biceps", "forearms"], "equipment": "Dumbbells", "link": "https://www.strengthlog.com/hammer-curl/"},
             {"name": "Resistance Band Curls", "duration": 35, "rest": 15, "met": 3.3, "muscles": ["biceps", "forearms"], "equipment": "Resistance band"},
-            {"name": "Towel Curl (isometric)", "duration": 30, "rest": 15, "met": 2.8, "muscles": ["biceps"], "equipment": "Towel / bodyweight"},
             {"name": "Concentration Curl", "duration": 35, "rest": 15, "met": 3.0, "muscles": ["biceps"], "equipment": "Dumbbell"},
             {"name": "Cable Curl", "duration": 40, "rest": 20, "met": 4.0, "muscles": ["biceps", "forearms"], "equipment": "Cable machine"},
+            {"name": "Preacher Curl Machine", "duration": 35, "rest": 20, "met": 3.2, "muscles": ["biceps"], "equipment": "Preacher curl machine"},
         ],
     },
     "shoulders": {
