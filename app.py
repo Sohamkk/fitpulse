@@ -865,10 +865,14 @@ EXERCISES = {
         "label": "Back",
         "color": "#5CC8FF",
         "items": [
+            {"name": "Deadlift", "duration": 45, "rest": 25, "met": 5.4, "muscles": ["lower_back", "glutes", "hamstrings", "traps"], "equipment": "Barbell"},
+            {"name": "Lat Pull Down", "duration": 40, "rest": 20, "met": 4.6, "muscles": ["lats", "biceps", "upper_back"], "equipment": "Cable machine"},
+            {"name": "Pullups", "duration": 35, "rest": 25, "met": 5.0, "muscles": ["lats", "biceps", "upper_back", "forearms"], "equipment": "Pull-up bar"},
+            {"name": "Barbell Row", "duration": 45, "rest": 20, "met": 4.8, "muscles": ["lats", "upper_back", "biceps"], "equipment": "Barbell"},
+            {"name": "Dumbbell Row", "duration": 40, "rest": 20, "met": 4.2, "muscles": ["lats", "upper_back", "biceps"], "equipment": "Dumbbells"},
             {"name": "Superman Hold", "duration": 30, "rest": 15, "met": 3.0, "muscles": ["lower_back", "lats", "glutes"], "equipment": "Bodyweight"},
             {"name": "Reverse Snow Angels", "duration": 35, "rest": 15, "met": 3.2, "muscles": ["upper_back", "shoulders"], "equipment": "Bodyweight"},
             {"name": "Cable Row", "duration": 40, "rest": 20, "met": 4.4, "muscles": ["lats", "upper_back", "biceps"], "equipment": "Cable machine"},
-            {"name": "Barbell Row", "duration": 45, "rest": 20, "met": 4.8, "muscles": ["lats", "upper_back", "biceps"], "equipment": "Barbell"},
         ],
     },
     "biceps": {
