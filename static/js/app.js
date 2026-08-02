@@ -553,18 +553,20 @@ function renderExerciseList(catKey) {
       <div class="eyebrow">Selected group</div>
       <div class="exercise-category-title">${cat.label}</div>
     </div>
-    <div class="exercise-category-count">${cat.items.length} exercises</div>
+    <div class="exercise-category-count">${cat.items.length || 0} exercises</div>
   `;
   list.appendChild(header);
 
   if (cat.locked) {
-    list.innerHTML = `
-      <div class="upgrade-prompt">
-        <div class="upgrade-prompt-title">🔒 ${cat.label} is a Premium category</div>
-        <p class="subtext">Upgrade to unlock all 13 workout categories, including ${cat.label}.</p>
-        <button class="btn btn-primary" id="upgrade-from-exercises-btn">See plans</button>
-      </div>`;
-    document.getElementById("upgrade-from-exercises-btn").addEventListener("click", () => showScreen("screen-plans"));
+    const prompt = document.createElement("div");
+    prompt.className = "upgrade-prompt";
+    prompt.innerHTML = `
+      <div class="upgrade-prompt-title">🔒 ${cat.label} is a Premium category</div>
+      <p class="subtext">Upgrade to unlock all 13 workout categories, including ${cat.label}.</p>
+      <button class="btn btn-primary" id="upgrade-from-exercises-btn">See plans</button>
+    `;
+    prompt.querySelector("#upgrade-from-exercises-btn").addEventListener("click", () => showScreen("screen-plans"));
+    list.appendChild(prompt);
     startAllBtn.style.display = "none";
     return;
   }
