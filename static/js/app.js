@@ -535,6 +535,8 @@ function renderCategoryChips() {
       state.activeCategory = key;
       renderCategoryChips();
       renderExerciseList(key);
+      const screenEl = document.getElementById("screen-exercises");
+      if (screenEl) screenEl.scrollTo({ top: 0, behavior: "auto" });
     });
     wrap.appendChild(chip);
   });
