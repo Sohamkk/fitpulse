@@ -498,15 +498,27 @@ h3 { font-size: 22px; }
   50% { filter: drop-shadow(0 0 9px rgba(199,244,100,0.95)); }
 }
 
-/* AR camera "energy aura" overlay */
+/* Live camera muscle-tracking overlay */
 .aura-toggle-btn {
   margin-top: 10px; background: none; border: 1px dashed rgba(199,244,100,0.35); color: var(--volt);
   font-size: 12px; padding: 8px 14px; border-radius: 999px; font-family: var(--font-mono);
 }
 .aura-toggle-btn.active { border-style: solid; background: rgba(199,244,100,0.08); }
-.aura-wrap { position: relative; width: 260px; height: 260px; margin-top: 10px; display: flex; align-items: center; justify-content: center; }
-.aura-wrap canvas { border-radius: 50%; }
-.aura-note { position: absolute; bottom: -6px; font-size: 10px; color: var(--text-dim); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.05em; }
+.aura-wrap {
+  position: relative; width: 100%; max-width: 280px; aspect-ratio: 280 / 360;
+  margin-top: 10px; border-radius: var(--radius); overflow: hidden;
+  background: #000; border: 1px solid var(--border);
+}
+.aura-wrap video, .aura-wrap canvas {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  object-fit: cover; transform: scaleX(-1); /* mirror, like a selfie camera */
+}
+.aura-note {
+  position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+  font-size: 10px; color: var(--text); background: rgba(0,0,0,0.55); padding: 4px 10px;
+  border-radius: 999px; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.05em;
+  white-space: nowrap;
+}
 
 
 .muscle-diagram { margin-top: 18px; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; }

@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>FitPulse — Train with intent</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<!-- Real pose detection for the camera muscle overlay — loaded lazily, only
+     used when the feature is toggled on. Runs entirely on-device. -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.1.3/dist/pose-detection.min.js" defer></script>
 
 </head>
 <body>
@@ -163,11 +167,11 @@
         <div class="mission-progress-fill" id="mission-progress-fill"></div>
       </div>
 
-      <button class="aura-toggle-btn" id="aura-toggle-btn">✨ Enable energy aura (camera)</button>
+      <button class="aura-toggle-btn" id="aura-toggle-btn">📷 Show muscle tracking (camera)</button>
       <div class="aura-wrap" id="aura-wrap" style="display:none;">
-        <canvas id="aura-canvas" width="260" height="260"></canvas>
-        <video id="aura-video" autoplay playsinline muted style="display:none;"></video>
-        <div class="aura-note" id="aura-note">Reading your movement…</div>
+        <video id="aura-video" autoplay playsinline muted></video>
+        <canvas id="aura-canvas" width="280" height="360"></canvas>
+        <div class="aura-note" id="aura-note">Loading pose model…</div>
       </div>
 
       <div class="timer-ring-container" id="timer-ring-container">

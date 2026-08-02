@@ -791,37 +791,107 @@ document.getElementById("timer-pause-btn").addEventListener("click", (e) => {
 });
 
 // ---------------------------------------------------------------------------
-// AR camera "energy aura" — client-side only, nothing is ever uploaded.
-// Approach: sample small video frames, measure frame-to-frame pixel change
-// as a cheap motion-intensity proxy, and render a glow that grows with it.
-// This tracks how much you're moving, not exact exercise form — an honest
-// v1 "energy meter" rather than a full pose-estimation system.
+// Live camera muscle tracking — client-side only, nothing is ever uploaded.
+// Uses a real pose-detection model (TensorFlow.js MoveNet) to find body
+// joints in the camera feed, then glows the region of whichever muscle(s)
+// the current exercise targets, directly on your own video. Front-facing
+// camera means back-of-body muscles (triceps vs biceps, hamstrings vs
+// quads, lats/back) can't be told apart visually — those pairs share an
+// approximate on-screen position honestly rather than pretending precision
+// we don't have.
 // ---------------------------------------------------------------------------
 let auraStream = null;
 let auraRAF = null;
-let auraSmoothed = 0;
-let auraPrevFrame = null;
-const auraSampleCanvas = document.createElement("canvas");
-auraSampleCanvas.width = 32;
-auraSampleCanvas.height = 32;
-const auraSampleCtx = auraSampleCanvas.getContext("2d", { willReadFrequently: true });
+let auraDetector = null;
+
+const MUSCLE_KEYPOINTS = {
+  shoulders: ["left_shoulder", "right_shoulder"],
+  chest: ["__chest"],
+  biceps: ["__upperarm_l", "__upperarm_r"],
+  triceps: ["__upperarm_l", "__upperarm_r"],
+  forearms: ["__forearm_l", "__forearm_r"],
+  abs: ["__torso_center"],
+  obliques: ["__oblique_l", "__oblique_r"],
+  quads: ["__thigh_l", "__thigh_r"],
+  hamstrings: ["__thigh_l", "__thigh_r"],
+  calves: ["__shin_l", "__shin_r"],
+  glutes: ["__hips"],
+  lats: ["__oblique_l", "__oblique_r"],
+  upper_back: ["__chest"],
+  lower_back: ["__torso_center"],
+  traps: ["left_shoulder", "right_shoulder"],
+};
+
+function mid(a, b) {
+  if (!a || !b) return null;
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, score: Math.min(a.score, b.score) };
+}
+
+function computeMusclePoints(kpMap, muscleKey) {
+  const ls = kpMap.left_shoulder, rs = kpMap.right_shoulder;
+  const lh = kpMap.left_hip, rh = kpMap.right_hip;
+  const le = kpMap.left_elbow, re = kpMap.right_elbow;
+  const lw = kpMap.left_wrist, rw = kpMap.right_wrist;
+  const lk = kpMap.left_knee, rk = kpMap.right_knee;
+  const la = kpMap.left_ankle, ra = kpMap.right_ankle;
+
+  const shoulderMid = mid(ls, rs);
+  const hipMid = mid(lh, rh);
+  const torsoCenter = mid(shoulderMid, hipMid);
+
+  const derived = {
+    __chest: torsoCenter && shoulderMid ? mid(shoulderMid, torsoCenter) : null,
+    __torso_center: torsoCenter,
+    __hips: hipMid,
+    __oblique_l: lh && torsoCenter ? mid(lh, torsoCenter) : null,
+    __oblique_r: rh && torsoCenter ? mid(rh, torsoCenter) : null,
+    __upperarm_l: mid(ls, le),
+    __upperarm_r: mid(rs, re),
+    __forearm_l: mid(le, lw),
+    __forearm_r: mid(re, rw),
+    __thigh_l: mid(lh, lk),
+    __thigh_r: mid(rh, rk),
+    __shin_l: mid(lk, la),
+    __shin_r: mid(rk, ra),
+    left_shoulder: ls, right_shoulder: rs,
+  };
+
+  return (MUSCLE_KEYPOINTS[muscleKey] || [])
+    .map((k) => derived[k])
+    .filter((p) => p && p.score > 0.3);
+}
 
 async function startAura() {
   const video = document.getElementById("aura-video");
   const note = document.getElementById("aura-note");
+
+  if (typeof poseDetection === "undefined" || typeof tf === "undefined") {
+    note.textContent = "Pose tracking failed to load — check your connection.";
+    return false;
+  }
+
   try {
     auraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
   } catch (err) {
     note.textContent = "Camera permission denied or unavailable.";
-    document.getElementById("aura-toggle-btn").classList.remove("active");
-    document.getElementById("aura-wrap").style.display = "none";
     return false;
   }
   video.srcObject = auraStream;
-  document.getElementById("aura-wrap").style.display = "flex";
-  note.textContent = "Reading your movement…";
-  auraSmoothed = 0;
-  auraPrevFrame = null;
+  document.getElementById("aura-wrap").style.display = "block";
+  note.textContent = "Loading pose model…";
+
+  try {
+    await tf.ready();
+    auraDetector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, {
+      modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
+    });
+  } catch (err) {
+    note.textContent = "Could not load pose model.";
+    stopAura();
+    return false;
+  }
+
+  note.textContent = "Tracking…";
   auraLoop();
   return true;
 }
@@ -833,45 +903,50 @@ function stopAura() {
     auraStream.getTracks().forEach((t) => t.stop());
     auraStream = null;
   }
+  auraDetector = null;
   document.getElementById("aura-wrap").style.display = "none";
   document.getElementById("aura-toggle-btn").classList.remove("active");
 }
 
-function auraLoop() {
+async function auraLoop() {
   const video = document.getElementById("aura-video");
   const canvas = document.getElementById("aura-canvas");
   const ctx = canvas.getContext("2d");
 
-  if (video.readyState >= 2) {
-    auraSampleCtx.drawImage(video, 0, 0, 32, 32);
-    const frame = auraSampleCtx.getImageData(0, 0, 32, 32).data;
+  if (video.readyState >= 2 && auraDetector) {
+    const poses = await auraDetector.estimatePoses(video);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    let motion = 0;
-    if (auraPrevFrame) {
-      for (let i = 0; i < frame.length; i += 4) {
-        motion += Math.abs(frame[i] - auraPrevFrame[i]);
-      }
-      motion = motion / (32 * 32); // avg per-pixel change, 0-255ish
+    if (poses.length) {
+      const scaleX = canvas.width / video.videoWidth;
+      const scaleY = canvas.height / video.videoHeight;
+      const kpMap = {};
+      poses[0].keypoints.forEach((k) => {
+        kpMap[k.name] = { x: k.x * scaleX, y: k.y * scaleY, score: k.score };
+      });
+
+      const ex = state.workoutQueue[state.workoutIndex];
+      const targetMuscles = ex && !state.isResting ? ex.muscles || [] : [];
+      const seen = new Set();
+
+      targetMuscles.forEach((muscle) => {
+        computeMusclePoints(kpMap, muscle).forEach((pt) => {
+          const key = Math.round(pt.x) + "," + Math.round(pt.y);
+          if (seen.has(key)) return; // avoid double-drawing overlapping muscle pairs
+          seen.add(key);
+          const grad = ctx.createRadialGradient(pt.x, pt.y, 2, pt.x, pt.y, 34);
+          grad.addColorStop(0, "rgba(199,244,100,0.85)");
+          grad.addColorStop(1, "rgba(199,244,100,0)");
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, 34, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      });
+
+      const note = document.getElementById("aura-note");
+      note.textContent = targetMuscles.length ? "Tracking: " + targetMuscles.join(", ") : "Tracking…";
     }
-    auraPrevFrame = frame;
-
-    // smooth so the aura breathes instead of flickering
-    auraSmoothed = auraSmoothed * 0.85 + motion * 0.15;
-    const intensity = Math.min(1, auraSmoothed / 18); // calibrated for typical webcam motion
-
-    ctx.clearRect(0, 0, 260, 260);
-    const radius = 60 + intensity * 70;
-    const grad = ctx.createRadialGradient(130, 130, 10, 130, 130, radius);
-    const hue = 80 - intensity * 20; // volt-lime, shifts slightly hotter as intensity climbs
-    grad.addColorStop(0, `hsla(${hue}, 90%, 65%, ${0.15 + intensity * 0.55})`);
-    grad.addColorStop(1, `hsla(${hue}, 90%, 55%, 0)`);
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(130, 130, radius, 0, Math.PI * 2);
-    ctx.fill();
-
-    const note = document.getElementById("aura-note");
-    note.textContent = intensity > 0.6 ? "🔥 Energy surging!" : intensity > 0.25 ? "Building energy…" : "Keep moving to charge up";
   }
 
   auraRAF = requestAnimationFrame(auraLoop);
@@ -884,7 +959,7 @@ document.getElementById("aura-toggle-btn").addEventListener("click", async (e) =
   }
   e.target.classList.add("active");
   const ok = await startAura();
-  if (ok) e.target.classList.add("active");
+  if (!ok) e.target.classList.remove("active");
 });
 
 document.getElementById("timer-exit-btn").addEventListener("click", () => {
