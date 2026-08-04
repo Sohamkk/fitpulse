@@ -1509,6 +1509,31 @@ async function loadPlansForCountry(country) {
 }
 
 // ---------------------------------------------------------------------------
+// Change password
+// ---------------------------------------------------------------------------
+document.getElementById("change-password-btn").addEventListener("click", async () => {
+  const oldPasswordEl = document.getElementById("pw-old-input");
+  const newPasswordEl = document.getElementById("pw-new-input");
+  const old_password = oldPasswordEl.value;
+  const new_password = newPasswordEl.value;
+
+  if (!new_password || new_password.length < 6) {
+    return flash("change-password-status", "New password must be at least 6 characters.");
+  }
+
+  const { data } = await api("/api/auth/set-password", {
+    method: "POST",
+    body: { old_password, new_password },
+  });
+  if (!data.ok) return flash("change-password-status", data.error || "Could not update password.");
+
+  state.user = data.user;
+  oldPasswordEl.value = "";
+  newPasswordEl.value = "";
+  flash("change-password-status", "Password updated. Other devices have been signed out.", "success");
+});
+
+// ---------------------------------------------------------------------------
 // Logout
 // ---------------------------------------------------------------------------
 document.getElementById("logout-btn").addEventListener("click", async () => {

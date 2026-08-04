@@ -700,22 +700,44 @@ def login_user():
 
 @app.post("/api/auth/set-password")
 def set_password():
-    """Let an already-signed-in user attach a password to their account.
+    """Let an already-signed-in user set/change their account password.
     Requires an existing session, so it only works after identity has
     already been proven via OTP, Google, or an existing password — never
-    as a way to claim an account by email alone."""
+    as a way to claim an account by email alone.
+
+    If the account already has a password, the caller must also prove they
+    know the CURRENT one (old_password) before it can be replaced — a
+    logged-in session alone isn't enough to change an existing password,
+    since anyone at an unlocked/shared device could otherwise hijack it."""
     if "user_id" not in session:
         return jsonify(ok=False, error="Not logged in."), 401
     data = request.get_json(force=True, silent=True) or {}
-    password = data.get("password") or ""
-    if len(password) < 6:
-        return jsonify(ok=False, error="Password must be at least 6 characters."), 400
+    old_password = data.get("old_password") or ""
+    new_password = data.get("new_password") or ""
+    if len(new_password) < 6:
+        return jsonify(ok=False, error="New password must be at least 6 characters."), 400
 
     db = get_db()
-    password_hash = generate_password_hash(password)
-    db.execute("UPDATE users SET password_hash=? WHERE id=?", (password_hash, session["user_id"]))
-    db.commit()
     user = db.execute("SELECT * FROM users WHERE id=?", (session["user_id"],)).fetchone()
+    if not user:
+        session.clear()
+        return jsonify(ok=False, error="User not found."), 401
+
+    if user["password_hash"]:
+        if not old_password:
+            return jsonify(ok=False, error="Enter your current password."), 400
+        if not check_password_hash(user["password_hash"], old_password):
+            return jsonify(ok=False, error="Current password is incorrect."), 401
+        if old_password == new_password:
+            return jsonify(ok=False, error="New password must be different from the current one."), 400
+
+    password_hash = generate_password_hash(new_password)
+    db.execute("UPDATE users SET password_hash=? WHERE id=?", (password_hash, user["id"]))
+    db.commit()
+    # A password change is exactly the moment to also sign out every other
+    # device — if the old password had leaked, this cuts that access off.
+    _start_session(db, user["id"])
+    user = db.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
     return jsonify(ok=True, user=_serialize_user(user))
 
 
