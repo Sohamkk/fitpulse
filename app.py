@@ -234,6 +234,7 @@ SCHEMA_POSTGRES = """
         identifier_type TEXT NOT NULL,
         name TEXT,
         age INTEGER,
+        dob TEXT,
         weight_kg REAL,
         height_cm REAL,
         gender TEXT,
@@ -328,6 +329,7 @@ SCHEMA_SQLITE = """
         identifier_type TEXT NOT NULL,         -- 'email' | 'phone'
         name TEXT,
         age INTEGER,
+        dob TEXT,                              -- date of birth, stored as ISO 'YYYY-MM-DD'
         weight_kg REAL,
         height_cm REAL,
         gender TEXT,
@@ -426,6 +428,7 @@ def init_db():
         cur.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS reminder_enabled INTEGER DEFAULT 1")
         cur.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS reminder_hour INTEGER DEFAULT 19")
         cur.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS reminder_minute INTEGER DEFAULT 0")
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS dob TEXT")
         conn.commit()
         # Migrate weekly_plan from "one category per day" (PK on user_id,
         # day_of_week) to "multiple categories per day" (PK also includes
@@ -447,6 +450,7 @@ def init_db():
     conn.executescript(SCHEMA_SQLITE)
     for stmt in (
         "ALTER TABLE users ADD COLUMN password_hash TEXT",
+        "ALTER TABLE users ADD COLUMN dob TEXT",
         "ALTER TABLE user_stats ADD COLUMN reminder_enabled INTEGER DEFAULT 1",
         "ALTER TABLE user_stats ADD COLUMN reminder_hour INTEGER DEFAULT 19",
         "ALTER TABLE user_stats ADD COLUMN reminder_minute INTEGER DEFAULT 0",
@@ -537,9 +541,34 @@ def send_otp(identifier: str, id_type: str, code: str) -> tuple[bool, str]:
 # Auth routes
 # ---------------------------------------------------------------------------
 
+def compute_age(dob_iso: str):
+    """Age in whole years as of today, from an ISO 'YYYY-MM-DD' date-of-birth
+    string. Recomputed fresh every time it's called, so it advances by
+    itself the day after the person's birthday — nothing needs to be
+    stored or refreshed in the database."""
+    if not dob_iso:
+        return None
+    try:
+        born = date.fromisoformat(dob_iso)
+    except (ValueError, TypeError):
+        return None
+    today = date.today()
+    age = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+    return age
+
+
 def _serialize_user(user_row):
     user = dict(user_row)
     user.pop("password_hash", None)
+    dob_iso = user.get("dob")
+    # Always derive "age" fresh from dob rather than trusting any stored
+    # value, so the profile shows the person's current age automatically.
+    user["age"] = compute_age(dob_iso)
+    if dob_iso:
+        try:
+            user["dob"] = date.fromisoformat(dob_iso).strftime("%d/%m/%Y")
+        except ValueError:
+            pass
     return user
 
 
@@ -716,7 +745,7 @@ def verify_otp():
         is_new = False
 
     session["user_id"] = user["id"]
-    return jsonify(ok=True, is_new_user=is_new, user=dict(user))
+    return jsonify(ok=True, is_new_user=is_new, user=_serialize_user(user))
 
 
 @app.post("/api/auth/google")
@@ -759,7 +788,7 @@ def google_signin():
         user = db.execute("SELECT * FROM users WHERE identifier=?", (email,)).fetchone()
 
     session["user_id"] = user["id"]
-    return jsonify(ok=True, user=dict(user))
+    return jsonify(ok=True, user=_serialize_user(user))
 
 
 @app.post("/api/auth/logout")
@@ -772,18 +801,47 @@ def logout():
 # Profile
 # ---------------------------------------------------------------------------
 
+def parse_dob_ddmmyyyy(dob_input: str):
+    """Parse a 'dd/mm/yyyy' string into (iso_string, age_years). Raises
+    ValueError with a user-facing message if the format or the resulting
+    age is invalid."""
+    dob_input = (dob_input or "").strip()
+    try:
+        born = datetime.strptime(dob_input, "%d/%m/%Y").date()
+    except ValueError:
+        raise ValueError("Enter date of birth as dd/mm/yyyy.")
+
+    today = date.today()
+    if born > today:
+        raise ValueError("Date of birth can't be in the future.")
+
+    age_years = compute_age(born.isoformat())
+    if age_years < 10 or age_years > 100:
+        raise ValueError("Age must be between 10 and 100 years.")
+
+    return born.isoformat(), age_years
+
+
 @app.post("/api/profile")
 def save_profile():
     if "user_id" not in session:
         return jsonify(ok=False, error="Not logged in."), 401
     data = request.get_json(force=True, silent=True) or {}
+
+    dob_iso = None
+    if data.get("dob"):
+        try:
+            dob_iso, _ = parse_dob_ddmmyyyy(data.get("dob"))
+        except ValueError as e:
+            return jsonify(ok=False, error=str(e)), 400
+
     db = get_db()
     db.execute(
-        """UPDATE users SET name=?, age=?, weight_kg=?, height_cm=?, gender=?,
+        """UPDATE users SET name=?, dob=?, weight_kg=?, height_cm=?, gender=?,
            activity_level=?, goal=?, country=? WHERE id=?""",
         (
             data.get("name"),
-            data.get("age"),
+            dob_iso,
             data.get("weight_kg"),
             data.get("height_cm"),
             data.get("gender"),
@@ -795,7 +853,7 @@ def save_profile():
     )
     db.commit()
     user = db.execute("SELECT * FROM users WHERE id=?", (session["user_id"],)).fetchone()
-    return jsonify(ok=True, user=dict(user))
+    return jsonify(ok=True, user=_serialize_user(user))
 
 
 # ---------------------------------------------------------------------------
@@ -1302,7 +1360,7 @@ def log_weight():
 
     db.commit()
     user = db.execute("SELECT * FROM users WHERE id=?", (session["user_id"],)).fetchone()
-    return jsonify(ok=True, weight_kg=weight_kg, logged_date=logged_date_str, user=dict(user))
+    return jsonify(ok=True, weight_kg=weight_kg, logged_date=logged_date_str, user=_serialize_user(user))
 
 
 @app.get("/api/weight-log")

@@ -135,6 +135,33 @@ registerEmailBtn.addEventListener("click", async () => {
 // ---------------------------------------------------------------------------
 // Profile setup
 // ---------------------------------------------------------------------------
+// Accepts DD/MM/YYYY, checks it's a real calendar date and not in the future.
+function isValidDob(value) {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((value || "").trim());
+  if (!m) return false;
+  const day = Number(m[1]), month = Number(m[2]), year = Number(m[3]);
+  const d = new Date(year, month - 1, day);
+  const isRealDate = d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day;
+  if (!isRealDate) return false;
+  return d <= new Date();
+}
+
+// Auto-inserts "/" as the person types digits, so DD/MM/YYYY doesn't
+// require them to type the slashes themselves.
+const dobInput = document.getElementById("pf-dob");
+if (dobInput) {
+  dobInput.addEventListener("input", () => {
+    let digits = dobInput.value.replace(/\D/g, "").slice(0, 8);
+    let formatted = digits;
+    if (digits.length > 4) {
+      formatted = `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+    } else if (digits.length > 2) {
+      formatted = `${digits.slice(0, 2)}/${digits.slice(2)}`;
+    }
+    dobInput.value = formatted;
+  });
+}
+
 let selectedGender = "male";
 document.querySelectorAll(".gender-toggle button").forEach((b) => {
   b.addEventListener("click", () => {
@@ -147,7 +174,7 @@ document.querySelectorAll(".gender-toggle button").forEach((b) => {
 document.getElementById("profile-save-btn").addEventListener("click", async () => {
   const payload = {
     name: document.getElementById("pf-name").value.trim(),
-    age: Number(document.getElementById("pf-age").value),
+    dob: document.getElementById("pf-dob").value.trim(),
     weight_kg: Number(document.getElementById("pf-weight").value),
     height_cm: Number(document.getElementById("pf-height").value),
     gender: selectedGender,
@@ -155,8 +182,11 @@ document.getElementById("profile-save-btn").addEventListener("click", async () =
     goal: document.getElementById("pf-goal").value,
     country: document.getElementById("pf-country").value,
   };
-  if (!payload.age || !payload.weight_kg || !payload.height_cm) {
-    return flash("profile-status", "Fill in age, weight, and height.");
+  if (!payload.dob || !payload.weight_kg || !payload.height_cm) {
+    return flash("profile-status", "Fill in date of birth, weight, and height.");
+  }
+  if (!isValidDob(payload.dob)) {
+    return flash("profile-status", "Enter date of birth as DD/MM/YYYY.");
   }
   const { data } = await api("/api/profile", { method: "POST", body: payload });
   if (!data.ok) return flash("profile-status", data.error || "Could not save profile.");
@@ -190,7 +220,7 @@ document.getElementById("edit-profile-btn").addEventListener("click", () => {
   document.getElementById("pf-heading").textContent = "Update your details";
 
   document.getElementById("pf-name").value = u.name || "";
-  document.getElementById("pf-age").value = u.age || "";
+  document.getElementById("pf-dob").value = u.dob || "";
   document.getElementById("pf-weight").value = u.weight_kg || "";
   document.getElementById("pf-height").value = u.height_cm || "";
   document.getElementById("pf-activity").value = u.activity_level || "moderate";
