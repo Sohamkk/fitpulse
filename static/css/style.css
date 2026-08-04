@@ -72,22 +72,23 @@ a { color: inherit; text-decoration: none; }
 
 #screen-diet {
   gap: 12px;
+  overflow-y: hidden;
 }
 
 #screen-exercises {
   gap: 0;
+  overflow-y: hidden;
 }
 
 #screen-exercises #category-chips {
-  position: sticky;
-  top: 0;
+  position: relative;
   z-index: 2;
   background: var(--bg);
   margin-top: 18px;
   margin-bottom: 10px;
   padding-top: 4px;
   padding-bottom: 10px;
-  overflow-y: visible;
+  flex: 0 0 auto;
 }
 
 #screen-exercises #start-category-btn {
@@ -97,16 +98,47 @@ a { color: inherit; text-decoration: none; }
   padding: 11px;
   font-size: 13px;
   margin: 0 0 14px;
+  flex: 0 0 auto;
 }
 
+/* Each category's exercise list scrolls on its own, independently of the
+   chips/header above it -- so scrolling no longer depends on the chips row
+   letting the wheel event through. */
 #screen-exercises #exercise-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 12px;
+  margin: 0 -24px;
+  padding-left: 24px;
+  padding-right: 24px;
 }
 
 #screen-diet .field {
   margin-bottom: 0;
+  flex: 0 0 auto;
+}
+
+#screen-diet #diet-summary,
+#screen-diet #diet-search-input,
+#screen-diet #diet-category-chips {
+  flex: 0 0 auto;
+}
+
+/* Same independent-scroll treatment for the diet/food list. */
+#screen-diet #diet-food-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 12px;
+  margin: 0 -24px;
+  padding-left: 24px;
+  padding-right: 24px;
 }
 
 .screen {
