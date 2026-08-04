@@ -690,3 +690,62 @@ h3 { font-size: 22px; }
 .gender-toggle { display: flex; gap: 10px; margin-bottom: 14px; }
 .gender-toggle button { flex: 1; padding: 14px; border-radius: var(--radius-sm); background: var(--bg-card); border: 1px solid var(--border); font-weight: 600; }
 .gender-toggle button.active { border-color: var(--volt); color: var(--volt); }
+
+/* ==========================================================================
+   Weight tracker (Account screen)
+   ========================================================================== */
+.weight-log-row { display: flex; gap: 10px; margin-top: 14px; }
+.weight-log-row .field { flex: 1; margin-bottom: 0; }
+.weight-log-row .btn { flex: 0 0 auto; width: auto; padding: 0 22px; }
+
+.weight-chart-wrap {
+  margin-top: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+.weight-chart-wrap svg { width: 100%; height: 120px; display: block; }
+#weight-chart-empty { display: none; margin: 0; }
+
+/* ==========================================================================
+   Weekly workout plan
+   ========================================================================== */
+.weekly-plan-day-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.weekly-plan-day-row:last-child { border-bottom: none; }
+.weekly-plan-day-label { width: 92px; flex: 0 0 92px; font-weight: 600; font-size: 14px; }
+.weekly-plan-day-row select.field { margin-bottom: 0; flex: 1; }
+
+/* ==========================================================================
+   Reminder toggle (Account screen)
+   ========================================================================== */
+.reminder-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 14px; }
+.toggle-switch {
+  width: 46px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  position: relative;
+  flex: 0 0 auto;
+  transition: background 0.15s var(--ease), border-color 0.15s var(--ease);
+  cursor: pointer;
+}
+.toggle-switch .toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  transition: transform 0.15s var(--ease), background 0.15s var(--ease);
+}
+.toggle-switch.on { background: rgba(199,244,100,0.18); border-color: rgba(199,244,100,0.4); }
+.toggle-switch.on .toggle-knob { transform: translateX(20px); background: var(--volt); }

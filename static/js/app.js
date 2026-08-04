@@ -22,6 +22,9 @@ const state = {
   dietLocked: false,
   stats: null,
   restAdjustSeconds: 0,
+  weeklyPlan: {},
+  weightLog: [],
+  reminder: { enabled: false, hour: 19, minute: 0 },
 };
 
 // ---------------------------------------------------------------------------
@@ -208,10 +211,21 @@ document.getElementById("edit-profile-btn").addEventListener("click", () => {
 async function enterApp() {
   document.getElementById("nav-bottom").classList.remove("hidden");
   renderGreeting();
-  await Promise.all([loadCalculatorResult(), loadExercises(), loadPlans(), updateWorkoutsToday(), loadFoodDatabase()]);
+  await Promise.all([
+    loadCalculatorResult(),
+    loadExercises(),
+    loadPlans(),
+    updateWorkoutsToday(),
+    loadFoodDatabase(),
+    loadWeightLog(),
+    loadWeeklyPlan(),
+    loadReminderSettings(),
+  ]);
   renderDietSummary();
   await dailyCheckin();
   renderAccountScreen();
+  renderTodaysPlanCard();
+  checkStreakReminder();
   showScreen("screen-dashboard");
 }
 
@@ -315,6 +329,95 @@ async function renderAchievements() {
 }
 
 // ---------------------------------------------------------------------------
+// Daily streak reminder — browser Notification API.
+// Note: this fires while the tab is open (foreground or backgrounded). It
+// won't pop up if the browser itself is fully closed — that needs a service
+// worker + push subscription + a server-side scheduler, which is a bigger
+// addition on top of this.
+// ---------------------------------------------------------------------------
+async function loadReminderSettings() {
+  const { data } = await api("/api/reminder-settings");
+  if (!data.ok) return;
+  state.reminder = { enabled: data.enabled, hour: data.hour, minute: data.minute };
+  renderReminderUI();
+}
+
+function renderReminderUI() {
+  const toggle = document.getElementById("reminder-toggle");
+  toggle.classList.toggle("on", state.reminder.enabled);
+  toggle.setAttribute("aria-pressed", String(state.reminder.enabled));
+  document.getElementById("reminder-time-input").value =
+    `${String(state.reminder.hour).padStart(2, "0")}:${String(state.reminder.minute).padStart(2, "0")}`;
+}
+
+async function saveReminderSettings() {
+  const { data } = await api("/api/reminder-settings", {
+    method: "POST",
+    body: { enabled: state.reminder.enabled, hour: state.reminder.hour, minute: state.reminder.minute },
+  });
+  if (!data.ok) return flash("reminder-status", data.error || "Could not save reminder settings.");
+  const timeStr = document.getElementById("reminder-time-input").value;
+  flash(
+    "reminder-status",
+    state.reminder.enabled ? `We'll nudge you around ${timeStr} if you haven't checked in yet.` : "Daily reminder turned off.",
+    "success"
+  );
+}
+
+document.getElementById("reminder-toggle").addEventListener("click", async () => {
+  const turningOn = !state.reminder.enabled;
+
+  if (turningOn) {
+    if (!("Notification" in window)) {
+      return flash("reminder-status", "This browser doesn't support notifications.");
+    }
+    if (Notification.permission === "default") {
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") {
+        return flash("reminder-status", "Allow notifications in your browser to turn this on.");
+      }
+    } else if (Notification.permission === "denied") {
+      return flash("reminder-status", "Notifications are blocked for this site — enable them in your browser settings.");
+    }
+  }
+
+  state.reminder.enabled = turningOn;
+  renderReminderUI();
+  await saveReminderSettings();
+});
+
+document.getElementById("reminder-time-input").addEventListener("change", async (e) => {
+  const [h, m] = e.target.value.split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return;
+  state.reminder.hour = h;
+  state.reminder.minute = m;
+  await saveReminderSettings();
+});
+
+let lastReminderFiredDate = null;
+function checkStreakReminder() {
+  if (!state.reminder.enabled) return;
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+  const today = localDateString();
+  const checkedInToday = state.stats?.last_checkin_date === today;
+  if (checkedInToday || lastReminderFiredDate === today) return;
+
+  const now = new Date();
+  const dueTime = new Date();
+  dueTime.setHours(state.reminder.hour, state.reminder.minute, 0, 0);
+  if (now < dueTime) return;
+
+  const streak = state.stats?.streak || 0;
+  const body = streak > 0
+    ? `Don't lose your ${streak}-day streak 🔥 — check in before the day resets.`
+    : "Open FitPulse and check in to start your streak 🔥";
+  new Notification("FitPulse", { body });
+  lastReminderFiredDate = today;
+}
+setInterval(checkStreakReminder, 60000);
+
+// ---------------------------------------------------------------------------
 // Calorie calculator
 // ---------------------------------------------------------------------------
 async function loadCalculatorResult() {
@@ -337,6 +440,100 @@ async function loadCalculatorResult() {
   document.getElementById("macro-carbs").textContent = `${data.macros.carbs_g}g`;
   document.getElementById("macro-fat").textContent = `${data.macros.fat_g}g`;
   document.getElementById("dash-target-cal").textContent = data.target_calories;
+}
+
+// ---------------------------------------------------------------------------
+// Weight tracker — weekly log + SVG line chart on the Account screen
+// ---------------------------------------------------------------------------
+async function loadWeightLog() {
+  const { data } = await api("/api/weight-log");
+  if (!data.ok) return;
+  state.weightLog = data.log;
+  renderWeightChart();
+}
+
+document.getElementById("weight-log-btn").addEventListener("click", async () => {
+  const input = document.getElementById("weight-log-input");
+  const val = Number(input.value);
+  if (!val || val < 20 || val > 400) {
+    return flash("weight-log-status", "Enter a weight between 20 and 400 kg.");
+  }
+  const btn = document.getElementById("weight-log-btn");
+  btn.disabled = true;
+  const { data } = await api("/api/weight-log", {
+    method: "POST",
+    body: { weight_kg: val, local_date: localDateString() },
+  });
+  btn.disabled = false;
+  if (!data.ok) return flash("weight-log-status", data.error || "Could not log your weight.");
+
+  input.value = "";
+  flash("weight-log-status", "Weight logged.", "success");
+  state.user = data.user;
+  document.getElementById("acc-weight").textContent = `${data.weight_kg} kg`;
+  await loadWeightLog();
+  await loadCalculatorResult();
+});
+
+function renderWeightChart() {
+  const svg = document.getElementById("weight-chart");
+  const empty = document.getElementById("weight-chart-empty");
+  const log = state.weightLog || [];
+
+  if (log.length < 2) {
+    svg.style.display = "none";
+    empty.style.display = "block";
+    svg.innerHTML = "";
+    return;
+  }
+  svg.style.display = "block";
+  empty.style.display = "none";
+
+  const W = 320, H = 140, PAD = 16;
+  const weights = log.map((r) => r.weight_kg);
+  const min = Math.min(...weights);
+  const max = Math.max(...weights);
+  const range = max - min || 1;
+  const stepX = (W - PAD * 2) / (log.length - 1);
+
+  const points = log.map((r, i) => {
+    const x = PAD + i * stepX;
+    const y = H - PAD - ((r.weight_kg - min) / range) * (H - PAD * 2);
+    return [x, y];
+  });
+
+  const pathD = points.map((p, i) => (i === 0 ? `M${p[0]},${p[1]}` : `L${p[0]},${p[1]}`)).join(" ");
+  const areaD = `${pathD} L${points[points.length - 1][0]},${H - PAD} L${points[0][0]},${H - PAD} Z`;
+
+  const ns = "http://www.w3.org/2000/svg";
+  svg.innerHTML = "";
+
+  const area = document.createElementNS(ns, "path");
+  area.setAttribute("d", areaD);
+  area.setAttribute("fill", "rgba(199,244,100,0.12)");
+  area.setAttribute("stroke", "none");
+  svg.appendChild(area);
+
+  const line = document.createElementNS(ns, "path");
+  line.setAttribute("d", pathD);
+  line.setAttribute("fill", "none");
+  line.setAttribute("stroke", "#C7F464");
+  line.setAttribute("stroke-width", "2.5");
+  line.setAttribute("stroke-linecap", "round");
+  line.setAttribute("stroke-linejoin", "round");
+  svg.appendChild(line);
+
+  points.forEach(([x, y], i) => {
+    const dot = document.createElementNS(ns, "circle");
+    dot.setAttribute("cx", x);
+    dot.setAttribute("cy", y);
+    dot.setAttribute("r", i === points.length - 1 ? 4 : 2.5);
+    dot.setAttribute("fill", i === points.length - 1 ? "#C7F464" : "#9BA1A8");
+    const title = document.createElementNS(ns, "title");
+    title.textContent = `${log[i].logged_date}: ${log[i].weight_kg} kg`;
+    dot.appendChild(title);
+    svg.appendChild(dot);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -585,6 +782,110 @@ function renderExerciseList(catKey) {
 function estCalories(ex) {
   const weight = state.user?.weight_kg || 70;
   return Math.round(ex.met * weight * (ex.duration / 3600));
+}
+
+// ---------------------------------------------------------------------------
+// Weekly workout plan — Monday-Saturday, one category (or rest) per day
+// ---------------------------------------------------------------------------
+const WEEKLY_PLAN_DAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+async function loadWeeklyPlan() {
+  const { data } = await api("/api/weekly-plan");
+  if (!data.ok) return;
+  state.weeklyPlan = data.plan;
+}
+
+function renderWeeklyPlanForm() {
+  const wrap = document.getElementById("weekly-plan-list");
+  wrap.innerHTML = "";
+  if (!state.categories) return;
+
+  const catOptions = Object.entries(state.categories)
+    .map(([key, cat]) => `<option value="${key}">${cat.locked ? "🔒 " : ""}${cat.label}</option>`)
+    .join("");
+
+  WEEKLY_PLAN_DAY_LABELS.forEach((label, i) => {
+    const row = document.createElement("div");
+    row.className = "weekly-plan-day-row";
+    row.innerHTML = `
+      <div class="weekly-plan-day-label">${label}</div>
+      <select class="field weekly-plan-day-select" data-day="${i}">
+        <option value="">Rest day</option>
+        ${catOptions}
+      </select>`;
+    wrap.appendChild(row);
+    row.querySelector("select").value = state.weeklyPlan[String(i)] || "";
+  });
+}
+
+document.getElementById("open-weekly-plan-btn").addEventListener("click", () => {
+  renderWeeklyPlanForm();
+  showScreen("screen-weekly-plan");
+});
+
+document.getElementById("weekly-plan-back-btn").addEventListener("click", () => {
+  showScreen("screen-exercises");
+});
+
+document.getElementById("weekly-plan-save-btn").addEventListener("click", async () => {
+  const plan = {};
+  document.querySelectorAll(".weekly-plan-day-select").forEach((sel) => {
+    plan[sel.dataset.day] = sel.value || null;
+  });
+
+  const btn = document.getElementById("weekly-plan-save-btn");
+  btn.disabled = true;
+  btn.textContent = "Saving…";
+  const { data } = await api("/api/weekly-plan", { method: "POST", body: { plan } });
+  btn.disabled = false;
+  btn.textContent = "Save plan";
+
+  if (!data.ok) return flash("weekly-plan-status", data.error || "Could not save your plan.");
+  state.weeklyPlan = plan;
+  flash("weekly-plan-status", "Weekly plan saved.", "success");
+  renderTodaysPlanCard();
+});
+
+function renderTodaysPlanCard() {
+  const wrap = document.getElementById("dash-today-plan");
+  if (!wrap || !state.categories) return;
+
+  const jsDay = new Date().getDay(); // 0 = Sunday .. 6 = Saturday
+  const dayIndex = jsDay === 0 ? null : jsDay - 1; // null = Sunday = always rest
+  const catKey = dayIndex === null ? null : state.weeklyPlan[String(dayIndex)];
+  const cat = catKey ? state.categories[catKey] : null;
+
+  if (!cat) {
+    wrap.innerHTML = `
+      <div class="exercise-card" style="cursor:default;">
+        <div class="exercise-meta">
+          <span class="exercise-dot" style="background:var(--steel)"></span>
+          <div>
+            <div class="exercise-name">Rest day</div>
+            <div class="exercise-sub">${dayIndex === null ? "Enjoy it — back tomorrow." : "Nothing planned — set one in your weekly plan."}</div>
+          </div>
+        </div>
+      </div>`;
+    return;
+  }
+
+  wrap.innerHTML = `
+    <div class="exercise-card" id="dash-today-plan-card">
+      <div class="exercise-meta">
+        <span class="exercise-dot" style="background:${cat.color}"></span>
+        <div>
+          <div class="exercise-name">${cat.label}</div>
+          <div class="exercise-sub">${cat.locked ? "Premium category — tap to unlock" : `${cat.items.length} exercises planned for today`}</div>
+        </div>
+      </div>
+      <div class="exercise-go">→</div>
+    </div>`;
+  document.getElementById("dash-today-plan-card").addEventListener("click", () => {
+    state.activeCategory = catKey;
+    renderCategoryChips();
+    renderExerciseList(catKey);
+    showScreen("screen-exercises");
+  });
 }
 
 function renderDashboardPreview() {
@@ -1182,29 +1483,4 @@ document.getElementById("logout-btn").addEventListener("click", async () => {
   state.user = null;
   state.identifier = null;
   location.reload();
-});
-
-// ---------------------------------------------------------------------------
-// Fix: category chip rows (.category-scroll) use overflow-x:auto for
-// horizontal scroll-snap. That makes the row its own scroll container, so
-// when the cursor hovers over it, vertical wheel/trackpad scrolling gets
-// captured by the row (which has no vertical overflow) instead of bubbling
-// up to the scrollable .screen behind it -- the screen appears "frozen"
-// whenever the pointer is over the chips. Forward predominantly-vertical
-// wheel input to the nearest scrollable screen so it keeps scrolling.
-// ---------------------------------------------------------------------------
-document.querySelectorAll(".category-scroll").forEach((row) => {
-  row.addEventListener(
-    "wheel",
-    (e) => {
-      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
-        const scrollParent = row.closest(".screen");
-        if (scrollParent) {
-          scrollParent.scrollTop += e.deltaY;
-          e.preventDefault();
-        }
-      }
-    },
-    { passive: false }
-  );
 });

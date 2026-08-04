@@ -133,6 +133,12 @@
     </div>
 
     <div class="section-head">
+      <h3>Today's plan</h3>
+      <span class="see-all" data-nav="screen-weekly-plan">Customize →</span>
+    </div>
+    <div id="dash-today-plan"></div>
+
+    <div class="section-head">
       <h3>Quick start</h3>
       <span class="see-all" data-nav="screen-exercises">See all →</span>
     </div>
@@ -148,10 +154,24 @@
   <!-- EXERCISES -->
   <div id="screen-exercises" class="screen">
     <div class="eyebrow">Library</div>
-    <h2>Exercises</h2>
+    <div class="topbar" style="padding:0;">
+      <h2>Exercises</h2>
+      <button class="btn btn-ghost" id="open-weekly-plan-btn" style="width:auto; padding:8px 14px; font-size:12px;">📅 Weekly plan</button>
+    </div>
     <div class="category-scroll" id="category-chips" style="margin-top:18px;"></div>
     <button id="start-category-btn" class="btn btn-primary">Start full circuit</button>
     <div id="exercise-list"></div>
+  </div>
+
+  <!-- WEEKLY PLAN -->
+  <div id="screen-weekly-plan" class="screen">
+    <button class="link-btn" id="weekly-plan-back-btn" style="align-self:flex-start; margin-bottom:16px;">← Back</button>
+    <div class="eyebrow">Library</div>
+    <h2>Weekly plan</h2>
+    <p class="subtext" style="margin:8px 0 20px;">Pick what you want to train each day. Sunday's always a free rest day.</p>
+    <div id="weekly-plan-status" class="status-msg"></div>
+    <div id="weekly-plan-list"></div>
+    <button id="weekly-plan-save-btn" class="btn btn-primary" style="margin-top:18px;">Save plan</button>
   </div>
 
   <!-- TIMER -->
@@ -377,6 +397,28 @@
         </div>
       </div>
     </div>
+
+    <div class="section-head"><h3>Weight tracker</h3></div>
+    <div class="weight-log-row">
+      <input id="weight-log-input" class="field" type="number" step="0.1" min="20" max="400" placeholder="Log today's weight (kg)">
+      <button id="weight-log-btn" class="btn btn-primary">Log</button>
+    </div>
+    <div id="weight-log-status" class="status-msg"></div>
+    <div class="weight-chart-wrap">
+      <svg id="weight-chart" viewBox="0 0 320 140" preserveAspectRatio="none"></svg>
+      <p id="weight-chart-empty" class="subtext" style="text-align:center; padding:10px 0;">Log your weight weekly to see your trend here.</p>
+    </div>
+
+    <div class="section-head"><h3>Reminders</h3></div>
+    <div class="reminder-row">
+      <div>
+        <div class="exercise-name">Daily streak reminder</div>
+        <div class="exercise-sub">A nudge before your streak resets, so you never lose it</div>
+      </div>
+      <button class="toggle-switch" id="reminder-toggle" type="button" aria-pressed="false"><span class="toggle-knob"></span></button>
+    </div>
+    <input id="reminder-time-input" class="field" type="time" value="19:00" style="margin-top:12px;">
+    <p id="reminder-status" class="status-msg" style="margin-top:-8px;"></p>
 
     <button class="btn btn-ghost" id="edit-profile-btn" style="margin-top:22px;">Edit profile</button>
     <button class="btn btn-ghost" style="margin-top:10px;" data-nav="screen-calculator">View my calorie plan</button>

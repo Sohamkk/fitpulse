@@ -292,7 +292,10 @@ SCHEMA_POSTGRES = """
         longest_streak INTEGER DEFAULT 0,
         last_checkin_date TEXT,
         freeze_available INTEGER DEFAULT 2,
-        freeze_month TEXT
+        freeze_month TEXT,
+        reminder_enabled INTEGER DEFAULT 1,
+        reminder_hour INTEGER DEFAULT 19,
+        reminder_minute INTEGER DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS user_unlocks (
@@ -300,6 +303,21 @@ SCHEMA_POSTGRES = """
         user_id INTEGER NOT NULL REFERENCES users(id),
         unlock_id TEXT NOT NULL,
         unlocked_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS weight_log (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        weight_kg REAL NOT NULL,
+        logged_date TEXT NOT NULL,
+        created_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS weekly_plan (
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        day_of_week INTEGER NOT NULL,
+        category TEXT,
+        PRIMARY KEY (user_id, day_of_week)
     );
 """
 
@@ -368,7 +386,10 @@ SCHEMA_SQLITE = """
         longest_streak INTEGER DEFAULT 0,
         last_checkin_date TEXT,
         freeze_available INTEGER DEFAULT 2,
-        freeze_month TEXT
+        freeze_month TEXT,
+        reminder_enabled INTEGER DEFAULT 1,
+        reminder_hour INTEGER DEFAULT 19,
+        reminder_minute INTEGER DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS user_unlocks (
@@ -376,6 +397,21 @@ SCHEMA_SQLITE = """
         user_id INTEGER NOT NULL REFERENCES users(id),
         unlock_id TEXT NOT NULL,
         unlocked_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS weight_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        weight_kg REAL NOT NULL,
+        logged_date TEXT NOT NULL,
+        created_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS weekly_plan (
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        day_of_week INTEGER NOT NULL,
+        category TEXT,
+        PRIMARY KEY (user_id, day_of_week)
     );
 """
 
@@ -385,16 +421,27 @@ def init_db():
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
         cur.execute(SCHEMA_POSTGRES)
+        # Postgres supports IF NOT EXISTS on ADD COLUMN directly, so existing
+        # databases from before the reminder feature pick these up safely.
+        cur.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS reminder_enabled INTEGER DEFAULT 1")
+        cur.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS reminder_hour INTEGER DEFAULT 19")
+        cur.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS reminder_minute INTEGER DEFAULT 0")
         conn.commit()
         conn.close()
         return
 
     conn = sqlite3.connect(DB_PATH)
     conn.executescript(SCHEMA_SQLITE)
-    try:
-        conn.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
-    except sqlite3.OperationalError:
-        pass
+    for stmt in (
+        "ALTER TABLE users ADD COLUMN password_hash TEXT",
+        "ALTER TABLE user_stats ADD COLUMN reminder_enabled INTEGER DEFAULT 1",
+        "ALTER TABLE user_stats ADD COLUMN reminder_hour INTEGER DEFAULT 19",
+        "ALTER TABLE user_stats ADD COLUMN reminder_minute INTEGER DEFAULT 0",
+    ):
+        try:
+            conn.execute(stmt)
+        except sqlite3.OperationalError:
+            pass  # column already exists — fine, this migration already ran
     conn.commit()
     conn.close()
 
@@ -1049,6 +1096,69 @@ def get_exercises():
     return jsonify(ok=True, categories=categories)
 
 
+# ---------------------------------------------------------------------------
+# Weekly workout plan — one exercise category per day, Monday through
+# Saturday (Sunday is always an unscheduled rest day, kept simple on purpose).
+# day_of_week: 0=Monday .. 5=Saturday. category=None means "rest day".
+# ---------------------------------------------------------------------------
+@app.get("/api/weekly-plan")
+def get_weekly_plan():
+    if "user_id" not in session:
+        return jsonify(ok=False, error="Not logged in."), 401
+    rows = get_db().execute(
+        "SELECT day_of_week, category FROM weekly_plan WHERE user_id=?",
+        (session["user_id"],),
+    ).fetchall()
+    plan = {str(day): None for day in range(6)}
+    for r in rows:
+        plan[str(r["day_of_week"])] = r["category"]
+    return jsonify(ok=True, plan=plan)
+
+
+@app.post("/api/weekly-plan")
+def save_weekly_plan():
+    if "user_id" not in session:
+        return jsonify(ok=False, error="Not logged in."), 401
+    data = request.get_json(force=True, silent=True) or {}
+    plan = data.get("plan")
+    if not isinstance(plan, dict):
+        return jsonify(ok=False, error="Missing plan."), 400
+
+    db = get_db()
+    for day_str, category in plan.items():
+        try:
+            day = int(day_str)
+        except (TypeError, ValueError):
+            continue
+        if not (0 <= day <= 5):
+            continue
+        if category is not None and category not in EXERCISES:
+            continue  # ignore unknown categories rather than erroring the whole save
+
+        existing = db.execute(
+            "SELECT 1 FROM weekly_plan WHERE user_id=? AND day_of_week=?",
+            (session["user_id"], day),
+        ).fetchone()
+        if category is None:
+            if existing:
+                db.execute(
+                    "DELETE FROM weekly_plan WHERE user_id=? AND day_of_week=?",
+                    (session["user_id"], day),
+                )
+        elif existing:
+            db.execute(
+                "UPDATE weekly_plan SET category=? WHERE user_id=? AND day_of_week=?",
+                (category, session["user_id"], day),
+            )
+        else:
+            db.execute(
+                "INSERT INTO weekly_plan (user_id, day_of_week, category) VALUES (?, ?, ?)",
+                (session["user_id"], day, category),
+            )
+    db.commit()
+    return jsonify(ok=True)
+
+
 @app.post("/api/log-workout")
 def log_workout():
     if "user_id" not in session:
@@ -1099,6 +1209,70 @@ def get_history():
         (session["user_id"],),
     ).fetchall()
     return jsonify(ok=True, history=[dict(r) for r in rows])
+
+
+# ---------------------------------------------------------------------------
+# Weight tracker — one entry per calendar day, chart-friendly history
+# ---------------------------------------------------------------------------
+@app.post("/api/weight-log")
+def log_weight():
+    if "user_id" not in session:
+        return jsonify(ok=False, error="Not logged in."), 401
+    data = request.get_json(force=True, silent=True) or {}
+
+    try:
+        weight_kg = float(data.get("weight_kg"))
+    except (TypeError, ValueError):
+        return jsonify(ok=False, error="Enter a valid weight."), 400
+    if not (20 <= weight_kg <= 400):
+        return jsonify(ok=False, error="Enter a weight between 20 and 400 kg."), 400
+
+    local_date = (data.get("local_date") or "").strip()
+    try:
+        logged_date = date.fromisoformat(local_date) if local_date else date.today()
+    except ValueError:
+        return jsonify(ok=False, error="Invalid date."), 400
+    logged_date_str = logged_date.isoformat()
+
+    db = get_db()
+    # One entry per day — logging again the same day updates it instead of
+    # piling up duplicate points on the chart.
+    existing = db.execute(
+        "SELECT id FROM weight_log WHERE user_id=? AND logged_date=?",
+        (session["user_id"], logged_date_str),
+    ).fetchone()
+    if existing:
+        db.execute("UPDATE weight_log SET weight_kg=? WHERE id=?", (weight_kg, existing["id"]))
+    else:
+        db.execute(
+            "INSERT INTO weight_log (user_id, weight_kg, logged_date, created_at) VALUES (?, ?, ?, ?)",
+            (session["user_id"], weight_kg, logged_date_str, now_str()),
+        )
+
+    # Keep the profile's current weight (used by the calorie calculator) in
+    # sync with the most recent log entry.
+    latest = db.execute(
+        "SELECT weight_kg FROM weight_log WHERE user_id=? ORDER BY logged_date DESC, id DESC LIMIT 1",
+        (session["user_id"],),
+    ).fetchone()
+    if latest:
+        db.execute("UPDATE users SET weight_kg=? WHERE id=?", (latest["weight_kg"], session["user_id"]))
+
+    db.commit()
+    user = db.execute("SELECT * FROM users WHERE id=?", (session["user_id"],)).fetchone()
+    return jsonify(ok=True, weight_kg=weight_kg, logged_date=logged_date_str, user=dict(user))
+
+
+@app.get("/api/weight-log")
+def get_weight_log():
+    if "user_id" not in session:
+        return jsonify(ok=False, error="Not logged in."), 401
+    rows = get_db().execute(
+        """SELECT weight_kg, logged_date FROM weight_log WHERE user_id=?
+           ORDER BY logged_date ASC LIMIT 180""",
+        (session["user_id"],),
+    ).fetchall()
+    return jsonify(ok=True, log=[dict(r) for r in rows])
 
 
 @app.post("/api/checkin")
@@ -1180,6 +1354,7 @@ def checkin():
         freeze_available=freeze_available,
         freeze_used=freeze_used,
         newly_unlocked=newly_unlocked,
+        last_checkin_date=today_str,
     )
 
 
@@ -1205,7 +1380,55 @@ def get_stats():
         longest_streak=stats["longest_streak"] or 0,
         freeze_available=stats["freeze_available"] if stats["freeze_available"] is not None else MONTHLY_STREAK_FREEZES,
         unlockables=catalog,
+        last_checkin_date=stats["last_checkin_date"],
     )
+
+
+# ---------------------------------------------------------------------------
+# Daily streak reminder — client-side Notification API preference.
+# The actual pop-up is fired by the browser tab (see app.js), since real
+# background/closed-app push would need a service worker + push subscription
+# + a server-side scheduler on top of this. This just persists the person's
+# on/off choice and preferred time.
+# ---------------------------------------------------------------------------
+@app.get("/api/reminder-settings")
+def get_reminder_settings():
+    if "user_id" not in session:
+        return jsonify(ok=False, error="Not logged in."), 401
+    db = get_db()
+    stats = get_or_create_stats(db, session["user_id"])
+    return jsonify(
+        ok=True,
+        enabled=bool(stats["reminder_enabled"]) if stats["reminder_enabled"] is not None else True,
+        hour=stats["reminder_hour"] if stats["reminder_hour"] is not None else 19,
+        minute=stats["reminder_minute"] if stats["reminder_minute"] is not None else 0,
+    )
+
+
+@app.post("/api/reminder-settings")
+def save_reminder_settings():
+    if "user_id" not in session:
+        return jsonify(ok=False, error="Not logged in."), 401
+    data = request.get_json(force=True, silent=True) or {}
+
+    try:
+        hour = int(data.get("hour", 19))
+        minute = int(data.get("minute", 0))
+    except (TypeError, ValueError):
+        return jsonify(ok=False, error="Invalid reminder time."), 400
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return jsonify(ok=False, error="Invalid reminder time."), 400
+
+    enabled = 1 if data.get("enabled") else 0
+
+    db = get_db()
+    get_or_create_stats(db, session["user_id"])  # ensure the row exists
+    db.execute(
+        "UPDATE user_stats SET reminder_enabled=?, reminder_hour=?, reminder_minute=? WHERE user_id=?",
+        (enabled, hour, minute, session["user_id"]),
+    )
+    db.commit()
+    return jsonify(ok=True, enabled=bool(enabled), hour=hour, minute=minute)
 
 
 # ---------------------------------------------------------------------------
