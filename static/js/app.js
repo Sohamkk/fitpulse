@@ -223,6 +223,7 @@ async function enterApp() {
   ]);
   renderDietSummary();
   await dailyCheckin();
+  await ensureNotificationPermission();
   renderAccountScreen();
   renderTodaysPlanCard();
   checkStreakReminder();
@@ -348,6 +349,27 @@ function renderReminderUI() {
   toggle.setAttribute("aria-pressed", String(state.reminder.enabled));
   document.getElementById("reminder-time-input").value =
     `${String(state.reminder.hour).padStart(2, "0")}:${String(state.reminder.minute).padStart(2, "0")}`;
+
+  if (state.reminder.enabled && "Notification" in window && Notification.permission === "denied") {
+    flash("reminder-status", "Notifications are blocked for this site — enable them in your browser settings to get reminders.");
+  }
+}
+
+// Ask for notification access as soon as the app opens (rather than only
+// when the user flips the reminder toggle), since reminders default to on.
+async function ensureNotificationPermission() {
+  if (!state.reminder.enabled) return;
+  if (!("Notification" in window)) return;
+  if (Notification.permission !== "default") {
+    renderReminderUI();
+    return;
+  }
+  try {
+    await Notification.requestPermission();
+  } catch (e) {
+    // ignore — browser may block programmatic prompts outside a user gesture
+  }
+  renderReminderUI();
 }
 
 async function saveReminderSettings() {
