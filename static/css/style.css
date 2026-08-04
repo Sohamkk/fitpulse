@@ -713,14 +713,25 @@ h3 { font-size: 22px; }
    ========================================================================== */
 .weekly-plan-day-row {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 10px;
   padding: 14px 0;
   border-bottom: 1px solid var(--border);
 }
 .weekly-plan-day-row:last-child { border-bottom: none; }
-.weekly-plan-day-label { width: 92px; flex: 0 0 92px; font-weight: 600; font-size: 14px; }
-.weekly-plan-day-row select.field { margin-bottom: 0; flex: 1; }
+.weekly-plan-day-label { font-weight: 600; font-size: 14px; }
+.weekly-plan-day-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.weekly-plan-chip {
+  flex: 0 0 auto;
+  scroll-snap-align: unset;
+}
+.weekly-plan-chip:not(.active) {
+  opacity: 0.85;
+}
 
 /* ==========================================================================
    Reminder toggle (Account screen)

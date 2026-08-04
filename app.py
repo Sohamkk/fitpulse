@@ -316,8 +316,8 @@ SCHEMA_POSTGRES = """
     CREATE TABLE IF NOT EXISTS weekly_plan (
         user_id INTEGER NOT NULL REFERENCES users(id),
         day_of_week INTEGER NOT NULL,
-        category TEXT,
-        PRIMARY KEY (user_id, day_of_week)
+        category TEXT NOT NULL,
+        PRIMARY KEY (user_id, day_of_week, category)
     );
 """
 
@@ -410,8 +410,8 @@ SCHEMA_SQLITE = """
     CREATE TABLE IF NOT EXISTS weekly_plan (
         user_id INTEGER NOT NULL REFERENCES users(id),
         day_of_week INTEGER NOT NULL,
-        category TEXT,
-        PRIMARY KEY (user_id, day_of_week)
+        category TEXT NOT NULL,
+        PRIMARY KEY (user_id, day_of_week, category)
     );
 """
 
@@ -427,6 +427,19 @@ def init_db():
         cur.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS reminder_hour INTEGER DEFAULT 19")
         cur.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS reminder_minute INTEGER DEFAULT 0")
         conn.commit()
+        # Migrate weekly_plan from "one category per day" (PK on user_id,
+        # day_of_week) to "multiple categories per day" (PK also includes
+        # category). Safe to run every startup — it's a no-op once applied.
+        try:
+            cur.execute("ALTER TABLE weekly_plan DROP CONSTRAINT IF EXISTS weekly_plan_pkey")
+            cur.execute("ALTER TABLE weekly_plan ALTER COLUMN category SET NOT NULL")
+            cur.execute(
+                "ALTER TABLE weekly_plan ADD CONSTRAINT weekly_plan_pkey "
+                "PRIMARY KEY (user_id, day_of_week, category)"
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()  # already migrated, or nothing to migrate — fine
         conn.close()
         return
 
@@ -442,6 +455,29 @@ def init_db():
             conn.execute(stmt)
         except sqlite3.OperationalError:
             pass  # column already exists — fine, this migration already ran
+
+    # Same migration as above, for sqlite: rebuild weekly_plan with category
+    # folded into the primary key so a day can hold more than one category.
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='weekly_plan'"
+    ).fetchone()
+    if row and row[0]:
+        normalized = "".join(row[0].split()).lower()
+        if "primarykey(user_id,day_of_week,category)" not in normalized:
+            conn.executescript("""
+                ALTER TABLE weekly_plan RENAME TO weekly_plan_old;
+                CREATE TABLE weekly_plan (
+                    user_id INTEGER NOT NULL REFERENCES users(id),
+                    day_of_week INTEGER NOT NULL,
+                    category TEXT NOT NULL,
+                    PRIMARY KEY (user_id, day_of_week, category)
+                );
+                INSERT INTO weekly_plan (user_id, day_of_week, category)
+                    SELECT DISTINCT user_id, day_of_week, category FROM weekly_plan_old
+                    WHERE category IS NOT NULL;
+                DROP TABLE weekly_plan_old;
+            """)
+
     conn.commit()
     conn.close()
 
@@ -980,6 +1016,21 @@ EXERCISES = {
             {"name": "Russian Twists", "duration": 35, "rest": 15, "met": 4.5, "muscles": ["abs", "obliques"], "equipment": "Medicine ball / bodyweight"},
         ],
     },
+    "legs": {
+        "label": "Legs",
+        "color": "#4DD0E1",
+        "items": [
+            {"name": "Barbell Back Squat", "duration": 45, "rest": 25, "met": 6.0, "muscles": ["quads", "glutes", "hamstrings"], "equipment": "Barbell", "link": "https://www.strengthlog.com/squat/"},
+            {"name": "Leg Press", "duration": 45, "rest": 25, "met": 5.5, "muscles": ["quads", "glutes", "hamstrings"], "equipment": "Leg press machine"},
+            {"name": "Romanian Deadlift", "duration": 40, "rest": 25, "met": 5.4, "muscles": ["hamstrings", "glutes", "lower_back"], "equipment": "Barbell / dumbbells"},
+            {"name": "Walking Lunges", "duration": 40, "rest": 20, "met": 5.2, "muscles": ["quads", "hamstrings", "glutes"], "equipment": "Dumbbells / bodyweight"},
+            {"name": "Leg Extension", "duration": 35, "rest": 20, "met": 3.8, "muscles": ["quads"], "equipment": "Leg extension machine"},
+            {"name": "Leg Curl", "duration": 35, "rest": 20, "met": 3.8, "muscles": ["hamstrings"], "equipment": "Leg curl machine"},
+            {"name": "Calf Raises", "duration": 35, "rest": 15, "met": 3.5, "muscles": ["calves"], "equipment": "Bodyweight / dumbbells"},
+            {"name": "Bulgarian Split Squat", "duration": 40, "rest": 25, "met": 5.6, "muscles": ["quads", "glutes", "hamstrings"], "equipment": "Dumbbells / bodyweight"},
+            {"name": "Hip Thrust", "duration": 40, "rest": 20, "met": 4.8, "muscles": ["glutes", "hamstrings"], "equipment": "Barbell / bodyweight"},
+        ],
+    },
 }
 
 
@@ -1097,9 +1148,9 @@ def get_exercises():
 
 
 # ---------------------------------------------------------------------------
-# Weekly workout plan — one exercise category per day, Monday through
-# Saturday (Sunday is always an unscheduled rest day, kept simple on purpose).
-# day_of_week: 0=Monday .. 5=Saturday. category=None means "rest day".
+# Weekly workout plan — one or more exercise categories per day, Monday
+# through Saturday (Sunday is always an unscheduled rest day, kept simple on
+# purpose). day_of_week: 0=Monday .. 5=Saturday. An empty list means "rest day".
 # ---------------------------------------------------------------------------
 @app.get("/api/weekly-plan")
 def get_weekly_plan():
@@ -1109,9 +1160,9 @@ def get_weekly_plan():
         "SELECT day_of_week, category FROM weekly_plan WHERE user_id=?",
         (session["user_id"],),
     ).fetchall()
-    plan = {str(day): None for day in range(6)}
+    plan = {str(day): [] for day in range(6)}
     for r in rows:
-        plan[str(r["day_of_week"])] = r["category"]
+        plan[str(r["day_of_week"])].append(r["category"])
     return jsonify(ok=True, plan=plan)
 
 
@@ -1125,32 +1176,23 @@ def save_weekly_plan():
         return jsonify(ok=False, error="Missing plan."), 400
 
     db = get_db()
-    for day_str, category in plan.items():
+    for day_str, categories in plan.items():
         try:
             day = int(day_str)
         except (TypeError, ValueError):
             continue
         if not (0 <= day <= 5):
             continue
-        if category is not None and category not in EXERCISES:
-            continue  # ignore unknown categories rather than erroring the whole save
 
-        existing = db.execute(
-            "SELECT 1 FROM weekly_plan WHERE user_id=? AND day_of_week=?",
-            (session["user_id"], day),
-        ).fetchone()
-        if category is None:
-            if existing:
-                db.execute(
-                    "DELETE FROM weekly_plan WHERE user_id=? AND day_of_week=?",
-                    (session["user_id"], day),
-                )
-        elif existing:
-            db.execute(
-                "UPDATE weekly_plan SET category=? WHERE user_id=? AND day_of_week=?",
-                (category, session["user_id"], day),
-            )
-        else:
+        # Accept a single category (legacy shape) or a list of them.
+        if categories is None:
+            categories = []
+        elif not isinstance(categories, list):
+            categories = [categories]
+        categories = sorted({c for c in categories if c in EXERCISES})  # dedupe, drop unknowns
+
+        db.execute("DELETE FROM weekly_plan WHERE user_id=? AND day_of_week=?", (session["user_id"], day))
+        for category in categories:
             db.execute(
                 "INSERT INTO weekly_plan (user_id, day_of_week, category) VALUES (?, ?, ?)",
                 (session["user_id"], day, category),

@@ -785,7 +785,7 @@ function estCalories(ex) {
 }
 
 // ---------------------------------------------------------------------------
-// Weekly workout plan — Monday-Saturday, one category (or rest) per day
+// Weekly workout plan — Monday-Saturday, any number of categories (or rest) per day
 // ---------------------------------------------------------------------------
 const WEEKLY_PLAN_DAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -800,21 +800,25 @@ function renderWeeklyPlanForm() {
   wrap.innerHTML = "";
   if (!state.categories) return;
 
-  const catOptions = Object.entries(state.categories)
-    .map(([key, cat]) => `<option value="${key}">${cat.locked ? "🔒 " : ""}${cat.label}</option>`)
-    .join("");
-
   WEEKLY_PLAN_DAY_LABELS.forEach((label, i) => {
+    const selected = new Set(state.weeklyPlan[String(i)] || []);
+    const chips = Object.entries(state.categories)
+      .map(([key, cat]) => `
+        <button type="button" class="category-chip weekly-plan-chip${selected.has(key) ? " active" : ""}" data-day="${i}" data-category="${key}">
+          ${cat.locked ? "🔒 " : ""}${cat.label}
+        </button>`)
+      .join("");
+
     const row = document.createElement("div");
     row.className = "weekly-plan-day-row";
     row.innerHTML = `
       <div class="weekly-plan-day-label">${label}</div>
-      <select class="field weekly-plan-day-select" data-day="${i}">
-        <option value="">Rest day</option>
-        ${catOptions}
-      </select>`;
+      <div class="weekly-plan-day-chips" data-day-chips="${i}">${chips}</div>`;
     wrap.appendChild(row);
-    row.querySelector("select").value = state.weeklyPlan[String(i)] || "";
+  });
+
+  wrap.querySelectorAll(".weekly-plan-chip").forEach((chip) => {
+    chip.addEventListener("click", () => chip.classList.toggle("active"));
   });
 }
 
@@ -829,8 +833,9 @@ document.getElementById("weekly-plan-back-btn").addEventListener("click", () => 
 
 document.getElementById("weekly-plan-save-btn").addEventListener("click", async () => {
   const plan = {};
-  document.querySelectorAll(".weekly-plan-day-select").forEach((sel) => {
-    plan[sel.dataset.day] = sel.value || null;
+  WEEKLY_PLAN_DAY_LABELS.forEach((_, i) => {
+    plan[i] = Array.from(document.querySelectorAll(`.weekly-plan-chip.active[data-day="${i}"]`))
+      .map((chip) => chip.dataset.category);
   });
 
   const btn = document.getElementById("weekly-plan-save-btn");
@@ -852,10 +857,9 @@ function renderTodaysPlanCard() {
 
   const jsDay = new Date().getDay(); // 0 = Sunday .. 6 = Saturday
   const dayIndex = jsDay === 0 ? null : jsDay - 1; // null = Sunday = always rest
-  const catKey = dayIndex === null ? null : state.weeklyPlan[String(dayIndex)];
-  const cat = catKey ? state.categories[catKey] : null;
+  const catKeys = dayIndex === null ? [] : (state.weeklyPlan[String(dayIndex)] || []);
 
-  if (!cat) {
+  if (!catKeys.length) {
     wrap.innerHTML = `
       <div class="exercise-card" style="cursor:default;">
         <div class="exercise-meta">
@@ -869,8 +873,13 @@ function renderTodaysPlanCard() {
     return;
   }
 
-  wrap.innerHTML = `
-    <div class="exercise-card" id="dash-today-plan-card">
+  wrap.innerHTML = "";
+  catKeys.forEach((catKey) => {
+    const cat = state.categories[catKey];
+    if (!cat) return;
+    const card = document.createElement("div");
+    card.className = "exercise-card";
+    card.innerHTML = `
       <div class="exercise-meta">
         <span class="exercise-dot" style="background:${cat.color}"></span>
         <div>
@@ -878,13 +887,14 @@ function renderTodaysPlanCard() {
           <div class="exercise-sub">${cat.locked ? "Premium category — tap to unlock" : `${cat.items.length} exercises planned for today`}</div>
         </div>
       </div>
-      <div class="exercise-go">→</div>
-    </div>`;
-  document.getElementById("dash-today-plan-card").addEventListener("click", () => {
-    state.activeCategory = catKey;
-    renderCategoryChips();
-    renderExerciseList(catKey);
-    showScreen("screen-exercises");
+      <div class="exercise-go">→</div>`;
+    card.addEventListener("click", () => {
+      state.activeCategory = catKey;
+      renderCategoryChips();
+      renderExerciseList(catKey);
+      showScreen("screen-exercises");
+    });
+    wrap.appendChild(card);
   });
 }
 
@@ -929,6 +939,7 @@ const MISSION_THEMES = {
   traps: { title: "⚒️ THE FORGE", verb: "power the mechanism" },
   forearms: { title: "⚒️ THE FORGE", verb: "power the mechanism" },
   abs: { title: "⚒️ THE FORGE", verb: "power the mechanism" },
+  legs: { title: "⚒️ THE FORGE", verb: "power the mechanism" },
 };
 
 function renderMissionBanner(exercise, phase) {
