@@ -66,7 +66,7 @@
       <button data-gender="male" class="active">Male</button>
       <button data-gender="female">Female</button>
     </div>
-    <input id="pf-dob" class="field" type="text" inputmode="numeric" placeholder="Date of birth (DD/MM/YYYY)" maxlength="10" autocomplete="bday">
+    <input id="pf-age" class="field" type="number" placeholder="Age" min="10" max="100">
     <input id="pf-weight" class="field" type="number" placeholder="Weight (kg)" min="30" max="300">
     <input id="pf-height" class="field" type="number" placeholder="Height (cm)" min="100" max="250">
 
@@ -423,6 +423,8 @@
     <button class="btn btn-ghost" id="edit-profile-btn" style="margin-top:22px;">Edit profile</button>
     <button class="btn btn-ghost" style="margin-top:10px;" data-nav="screen-calculator">View my calorie plan</button>
     <button class="btn btn-ghost" style="margin-top:10px;" data-nav="screen-plans">Manage subscription</button>
+    <button id="logout-other-btn" class="btn btn-ghost" style="margin-top:10px;">Log out other sessions</button>
+    <p id="logout-other-status" class="status-msg" style="margin-top:-4px;"></p>
     <button id="logout-btn" class="btn btn-ghost" style="margin-top:10px; color:var(--signal); border-color:rgba(255,77,94,0.3);">Log out</button>
   </div>
 

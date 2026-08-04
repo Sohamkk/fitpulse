@@ -242,6 +242,7 @@ SCHEMA_POSTGRES = """
         country TEXT DEFAULT 'IN',
         plan TEXT DEFAULT 'free',
         password_hash TEXT,
+        session_token TEXT,
         created_at TEXT
     );
 
@@ -336,6 +337,7 @@ SCHEMA_SQLITE = """
         country TEXT DEFAULT 'IN',
         plan TEXT DEFAULT 'free',
         password_hash TEXT,
+        session_token TEXT,                    -- rotated on "log out other sessions"
         created_at TEXT
     );
 
@@ -429,6 +431,7 @@ def init_db():
         # Replaced the static "age" number with a stored date of birth so the
         # displayed age can update itself every year instead of going stale.
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS dob TEXT")
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS session_token TEXT")
         conn.commit()
         # Migrate weekly_plan from "one category per day" (PK on user_id,
         # day_of_week) to "multiple categories per day" (PK also includes
@@ -451,6 +454,7 @@ def init_db():
     for stmt in (
         "ALTER TABLE users ADD COLUMN password_hash TEXT",
         "ALTER TABLE users ADD COLUMN dob TEXT",
+        "ALTER TABLE users ADD COLUMN session_token TEXT",
         "ALTER TABLE user_stats ADD COLUMN reminder_enabled INTEGER DEFAULT 1",
         "ALTER TABLE user_stats ADD COLUMN reminder_hour INTEGER DEFAULT 19",
         "ALTER TABLE user_stats ADD COLUMN reminder_minute INTEGER DEFAULT 0",
@@ -558,11 +562,48 @@ def calculate_age(dob_str):
     return years
 
 
+def _new_session_token():
+    return secrets.token_hex(32)
+
+
+def _start_session(db, user_id):
+    """Log this browser in as user_id: issue a fresh session_token, persist
+    it, and stamp it into the cookie. Called from every place that
+    establishes a new login (password, OTP, Google) — never from anything
+    that merely re-reads an existing session — so a brand-new login always
+    gets a token that matches what's in the database."""
+    token = _new_session_token()
+    db.execute("UPDATE users SET session_token=? WHERE id=?", (token, user_id))
+    db.commit()
+    session["user_id"] = user_id
+    session["session_token"] = token
+
+
 def _serialize_user(user_row):
     user = dict(user_row)
     user.pop("password_hash", None)
+    user.pop("session_token", None)
     user["age"] = calculate_age(user.get("dob"))
     return user
+
+
+@app.before_request
+def _enforce_single_session():
+    """If the account has rotated its session_token (via "log out other
+    sessions"), any cookie still carrying the old token belongs to a device
+    that should be signed out. Checked on every request so a revoked device
+    is logged out on its very next action, not just at its next login."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return
+    db = get_db()
+    row = db.execute("SELECT session_token FROM users WHERE id=?", (user_id,)).fetchone()
+    if row is None:
+        session.clear()
+        return
+    db_token = row["session_token"]
+    if db_token and session.get("session_token") != db_token:
+        session.clear()
 
 
 @app.get("/api/me")
@@ -618,8 +659,8 @@ def register_user():
         user_id = cur.lastrowid
 
     db.commit()
+    _start_session(db, user_id)
     user = db.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
-    session["user_id"] = user_id
     return jsonify(ok=True, is_new_user=True, user=_serialize_user(user))
 
 
@@ -653,7 +694,7 @@ def login_user():
     if not check_password_hash(user["password_hash"], password):
         return jsonify(ok=False, error="Invalid email or password."), 401
 
-    session["user_id"] = user["id"]
+    _start_session(db, user["id"])
     return jsonify(ok=True, is_new_user=False, user=_serialize_user(user))
 
 
@@ -765,7 +806,7 @@ def verify_otp():
     else:
         is_new = False
 
-    session["user_id"] = user["id"]
+    _start_session(db, user["id"])
     return jsonify(ok=True, is_new_user=is_new, user=_serialize_user(user))
 
 
@@ -808,7 +849,7 @@ def google_signin():
         db.commit()
         user = db.execute("SELECT * FROM users WHERE identifier=?", (email,)).fetchone()
 
-    session["user_id"] = user["id"]
+    _start_session(db, user["id"])
     return jsonify(ok=True, user=_serialize_user(user))
 
 
@@ -816,6 +857,19 @@ def google_signin():
 def logout():
     session.clear()
     return jsonify(ok=True)
+
+
+@app.post("/api/auth/logout-other-sessions")
+def logout_other_sessions():
+    """Sign out every other device/browser logged into this account, while
+    keeping the current one logged in. Works by rotating session_token:
+    any cookie still carrying the old token gets caught and cleared by
+    _enforce_single_session on its next request."""
+    if "user_id" not in session:
+        return jsonify(ok=False, error="Not logged in."), 401
+    db = get_db()
+    _start_session(db, session["user_id"])  # issues a new token, re-stamps this cookie
+    return jsonify(ok=True, message="All other sessions have been signed out.")
 
 
 # ---------------------------------------------------------------------------
