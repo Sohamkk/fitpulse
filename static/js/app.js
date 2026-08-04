@@ -1542,9 +1542,3 @@ document.getElementById("logout-btn").addEventListener("click", async () => {
   state.identifier = null;
   location.reload();
 });
-
-document.getElementById("logout-other-btn").addEventListener("click", async () => {
-  const { data } = await api("/api/auth/logout-other-sessions", { method: "POST" });
-  if (!data.ok) return flash("logout-other-status", data.error || "Could not log out other sessions.");
-  flash("logout-other-status", "Every other device has been signed out.", "success");
-});
