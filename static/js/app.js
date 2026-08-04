@@ -1183,3 +1183,28 @@ document.getElementById("logout-btn").addEventListener("click", async () => {
   state.identifier = null;
   location.reload();
 });
+
+// ---------------------------------------------------------------------------
+// Fix: category chip rows (.category-scroll) use overflow-x:auto for
+// horizontal scroll-snap. That makes the row its own scroll container, so
+// when the cursor hovers over it, vertical wheel/trackpad scrolling gets
+// captured by the row (which has no vertical overflow) instead of bubbling
+// up to the scrollable .screen behind it -- the screen appears "frozen"
+// whenever the pointer is over the chips. Forward predominantly-vertical
+// wheel input to the nearest scrollable screen so it keeps scrolling.
+// ---------------------------------------------------------------------------
+document.querySelectorAll(".category-scroll").forEach((row) => {
+  row.addEventListener(
+    "wheel",
+    (e) => {
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        const scrollParent = row.closest(".screen");
+        if (scrollParent) {
+          scrollParent.scrollTop += e.deltaY;
+          e.preventDefault();
+        }
+      }
+    },
+    { passive: false }
+  );
+});
