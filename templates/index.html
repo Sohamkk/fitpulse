@@ -420,18 +420,25 @@
     <input id="reminder-time-input" class="field" type="time" value="19:00" style="margin-top:12px;">
     <p id="reminder-status" class="status-msg" style="margin-top:-8px;"></p>
 
-    <div class="section-head"><h3>Change password</h3></div>
-    <input id="pw-old-input" class="field" type="password" placeholder="Current password" autocomplete="current-password">
-    <input id="pw-new-input" class="field" type="password" placeholder="New password (min 6 characters)" autocomplete="new-password">
-    <p id="change-password-status" class="status-msg"></p>
-    <button id="change-password-btn" class="btn btn-ghost">Update password</button>
-
     <button class="btn btn-ghost" id="edit-profile-btn" style="margin-top:22px;">Edit profile</button>
     <button class="btn btn-ghost" style="margin-top:10px;" data-nav="screen-calculator">View my calorie plan</button>
     <button class="btn btn-ghost" style="margin-top:10px;" data-nav="screen-plans">Manage subscription</button>
+    <button class="btn btn-ghost" style="margin-top:10px;" data-nav="screen-change-password">Change password</button>
     <button id="logout-other-btn" class="btn btn-ghost" style="margin-top:10px;">Log out other sessions</button>
     <p id="logout-other-status" class="status-msg" style="margin-top:-4px;"></p>
     <button id="logout-btn" class="btn btn-ghost" style="margin-top:10px; color:var(--signal); border-color:rgba(255,77,94,0.3);">Log out</button>
+  </div>
+
+  <!-- CHANGE PASSWORD -->
+  <div id="screen-change-password" class="screen">
+    <button class="link-btn" data-nav="screen-account" style="align-self:flex-start; margin-bottom:16px;">← Back</button>
+    <div class="eyebrow">Account</div>
+    <h2>Change password</h2>
+    <p class="subtext" style="margin:8px 0 24px;">Enter your current password, then choose a new one.</p>
+    <p id="change-password-status" class="status-msg"></p>
+    <input id="pw-old-input" class="field" type="password" placeholder="Current password" autocomplete="current-password">
+    <input id="pw-new-input" class="field" type="password" placeholder="New password (min 6 characters)" autocomplete="new-password">
+    <button id="change-password-btn" class="btn btn-primary" style="margin-top:8px;">Update password</button>
   </div>
 
   <!-- BOTTOM NAV -->
