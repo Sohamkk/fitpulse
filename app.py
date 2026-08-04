@@ -233,7 +233,6 @@ SCHEMA_POSTGRES = """
         identifier TEXT UNIQUE NOT NULL,
         identifier_type TEXT NOT NULL,
         name TEXT,
-        age INTEGER,
         dob TEXT,
         weight_kg REAL,
         height_cm REAL,
@@ -328,8 +327,7 @@ SCHEMA_SQLITE = """
         identifier TEXT UNIQUE NOT NULL,       -- email or phone
         identifier_type TEXT NOT NULL,         -- 'email' | 'phone'
         name TEXT,
-        age INTEGER,
-        dob TEXT,                              -- date of birth, stored as ISO 'YYYY-MM-DD'
+        dob TEXT,                              -- date of birth, 'YYYY-MM-DD'
         weight_kg REAL,
         height_cm REAL,
         gender TEXT,
@@ -428,6 +426,8 @@ def init_db():
         cur.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS reminder_enabled INTEGER DEFAULT 1")
         cur.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS reminder_hour INTEGER DEFAULT 19")
         cur.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS reminder_minute INTEGER DEFAULT 0")
+        # Replaced the static "age" number with a stored date of birth so the
+        # displayed age can update itself every year instead of going stale.
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS dob TEXT")
         conn.commit()
         # Migrate weekly_plan from "one category per day" (PK on user_id,
@@ -541,34 +541,27 @@ def send_otp(identifier: str, id_type: str, code: str) -> tuple[bool, str]:
 # Auth routes
 # ---------------------------------------------------------------------------
 
-def compute_age(dob_iso: str):
-    """Age in whole years as of today, from an ISO 'YYYY-MM-DD' date-of-birth
-    string. Recomputed fresh every time it's called, so it advances by
-    itself the day after the person's birthday — nothing needs to be
-    stored or refreshed in the database."""
-    if not dob_iso:
+def calculate_age(dob_str):
+    """Whole years of age as of today, computed from a 'YYYY-MM-DD' date of
+    birth. Returns None if dob_str is missing/unparseable. Because this is
+    computed on every read rather than stored, the displayed age rolls over
+    automatically the day the birthday passes — no separate update job needed.
+    """
+    if not dob_str:
         return None
     try:
-        born = date.fromisoformat(dob_iso)
+        dob = datetime.strptime(dob_str, "%Y-%m-%d").date()
     except (ValueError, TypeError):
         return None
     today = date.today()
-    age = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
-    return age
+    years = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+    return years
 
 
 def _serialize_user(user_row):
     user = dict(user_row)
     user.pop("password_hash", None)
-    dob_iso = user.get("dob")
-    # Always derive "age" fresh from dob rather than trusting any stored
-    # value, so the profile shows the person's current age automatically.
-    user["age"] = compute_age(dob_iso)
-    if dob_iso:
-        try:
-            user["dob"] = date.fromisoformat(dob_iso).strftime("%d/%m/%Y")
-        except ValueError:
-            pass
+    user["age"] = calculate_age(user.get("dob"))
     return user
 
 
@@ -600,17 +593,17 @@ def register_user():
 
     db = get_db()
     existing = db.execute("SELECT * FROM users WHERE identifier=?", (email,)).fetchone()
-    if existing and existing["password_hash"]:
-        return jsonify(ok=False, error="An account with that email already exists."), 409
+    if existing:
+        # This identifier is already tied to an account — even if that
+        # account has never set a password (e.g. it was created by OTP or
+        # Google sign-in). Letting a register call attach a brand-new
+        # password to it here would mean anyone who knows the email could
+        # take over the account. They must prove ownership first (by
+        # signing in with whatever method the account already uses).
+        return jsonify(ok=False, error="An account with that email already exists. Sign in instead."), 409
 
     password_hash = generate_password_hash(password)
-    if existing:
-        db.execute(
-            "UPDATE users SET name=?, password_hash=? WHERE id=?",
-            (name, password_hash, existing["id"]),
-        )
-        user_id = existing["id"]
-    elif IS_POSTGRES:
+    if IS_POSTGRES:
         cur = db.execute(
             "INSERT INTO users (identifier, identifier_type, name, password_hash, created_at) "
             "VALUES (?, 'email', ?, ?, ?) RETURNING id",
@@ -645,16 +638,44 @@ def login_user():
         return jsonify(ok=False, error="Invalid email or password."), 401
 
     if not user["password_hash"]:
-        password_hash = generate_password_hash(password)
-        db.execute("UPDATE users SET password_hash=? WHERE id=?", (password_hash, user["id"]))
-        db.commit()
-        user = db.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
+        # This account was created via OTP or Google sign-in and has never
+        # had a password set. Do NOT treat "no password on file" as license
+        # to adopt whatever password was just typed — that would let anyone
+        # who knows this email log in as this user with a password of their
+        # own choosing. Send them to the sign-in method the account
+        # actually owns instead.
+        return jsonify(
+            ok=False,
+            error="This account signs in with a one-time code or Google. Use that option, "
+                  "or set a password from Account settings once you're signed in.",
+        ), 401
 
     if not check_password_hash(user["password_hash"], password):
         return jsonify(ok=False, error="Invalid email or password."), 401
 
     session["user_id"] = user["id"]
     return jsonify(ok=True, is_new_user=False, user=_serialize_user(user))
+
+
+@app.post("/api/auth/set-password")
+def set_password():
+    """Let an already-signed-in user attach a password to their account.
+    Requires an existing session, so it only works after identity has
+    already been proven via OTP, Google, or an existing password — never
+    as a way to claim an account by email alone."""
+    if "user_id" not in session:
+        return jsonify(ok=False, error="Not logged in."), 401
+    data = request.get_json(force=True, silent=True) or {}
+    password = data.get("password") or ""
+    if len(password) < 6:
+        return jsonify(ok=False, error="Password must be at least 6 characters."), 400
+
+    db = get_db()
+    password_hash = generate_password_hash(password)
+    db.execute("UPDATE users SET password_hash=? WHERE id=?", (password_hash, session["user_id"]))
+    db.commit()
+    user = db.execute("SELECT * FROM users WHERE id=?", (session["user_id"],)).fetchone()
+    return jsonify(ok=True, user=_serialize_user(user))
 
 
 @app.post("/api/auth/request-otp")
@@ -801,27 +822,6 @@ def logout():
 # Profile
 # ---------------------------------------------------------------------------
 
-def parse_dob_ddmmyyyy(dob_input: str):
-    """Parse a 'dd/mm/yyyy' string into (iso_string, age_years). Raises
-    ValueError with a user-facing message if the format or the resulting
-    age is invalid."""
-    dob_input = (dob_input or "").strip()
-    try:
-        born = datetime.strptime(dob_input, "%d/%m/%Y").date()
-    except ValueError:
-        raise ValueError("Enter date of birth as dd/mm/yyyy.")
-
-    today = date.today()
-    if born > today:
-        raise ValueError("Date of birth can't be in the future.")
-
-    age_years = compute_age(born.isoformat())
-    if age_years < 10 or age_years > 100:
-        raise ValueError("Age must be between 10 and 100 years.")
-
-    return born.isoformat(), age_years
-
-
 @app.post("/api/profile")
 def save_profile():
     if "user_id" not in session:
@@ -829,11 +829,14 @@ def save_profile():
     data = request.get_json(force=True, silent=True) or {}
 
     dob_iso = None
-    if data.get("dob"):
+    dob_raw = (data.get("dob") or "").strip()
+    if dob_raw:
         try:
-            dob_iso, _ = parse_dob_ddmmyyyy(data.get("dob"))
-        except ValueError as e:
-            return jsonify(ok=False, error=str(e)), 400
+            dob_iso = datetime.strptime(dob_raw, "%d/%m/%Y").date().isoformat()
+        except ValueError:
+            return jsonify(ok=False, error="Enter date of birth as dd/mm/yyyy."), 400
+        if dob_iso > date.today().isoformat():
+            return jsonify(ok=False, error="Date of birth can't be in the future."), 400
 
     db = get_db()
     db.execute(
