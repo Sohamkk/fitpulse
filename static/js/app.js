@@ -136,6 +136,16 @@ registerEmailBtn.addEventListener("click", async () => {
 // Profile setup
 // ---------------------------------------------------------------------------
 let selectedGender = "male";
+
+// Constrain the date-of-birth picker: no future dates, and a sane oldest bound.
+(function setDobBounds() {
+  const dobInput = document.getElementById("pf-dob");
+  const today = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  dobInput.max = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+  dobInput.min = `${today.getFullYear() - 120}-01-01`;
+})();
+
 document.querySelectorAll(".gender-toggle button").forEach((b) => {
   b.addEventListener("click", () => {
     document.querySelectorAll(".gender-toggle button").forEach((x) => x.classList.remove("active"));
@@ -145,9 +155,15 @@ document.querySelectorAll(".gender-toggle button").forEach((b) => {
 });
 
 document.getElementById("profile-save-btn").addEventListener("click", async () => {
+  const dobIso = document.getElementById("pf-dob").value; // native date input gives yyyy-mm-dd
+  let dobFormatted = "";
+  if (dobIso) {
+    const [y, m, d] = dobIso.split("-");
+    dobFormatted = `${d}/${m}/${y}`;
+  }
   const payload = {
     name: document.getElementById("pf-name").value.trim(),
-    age: Number(document.getElementById("pf-age").value),
+    dob: dobFormatted,
     weight_kg: Number(document.getElementById("pf-weight").value),
     height_cm: Number(document.getElementById("pf-height").value),
     gender: selectedGender,
@@ -155,8 +171,8 @@ document.getElementById("profile-save-btn").addEventListener("click", async () =
     goal: document.getElementById("pf-goal").value,
     country: document.getElementById("pf-country").value,
   };
-  if (!payload.age || !payload.weight_kg || !payload.height_cm) {
-    return flash("profile-status", "Fill in age, weight, and height.");
+  if (!payload.dob || !payload.weight_kg || !payload.height_cm) {
+    return flash("profile-status", "Fill in date of birth, weight, and height.");
   }
   const { data } = await api("/api/profile", { method: "POST", body: payload });
   if (!data.ok) return flash("profile-status", data.error || "Could not save profile.");
@@ -190,7 +206,7 @@ document.getElementById("edit-profile-btn").addEventListener("click", () => {
   document.getElementById("pf-heading").textContent = "Update your details";
 
   document.getElementById("pf-name").value = u.name || "";
-  document.getElementById("pf-age").value = u.age || "";
+  document.getElementById("pf-dob").value = u.dob || "";
   document.getElementById("pf-weight").value = u.weight_kg || "";
   document.getElementById("pf-height").value = u.height_cm || "";
   document.getElementById("pf-activity").value = u.activity_level || "moderate";
@@ -1072,7 +1088,7 @@ const MUSCLE_LABELS = {
   shoulders: "Shoulders", chest: "Chest", biceps: "Biceps", triceps: "Triceps",
   forearms: "Forearms", abs: "Abs", obliques: "Obliques", quads: "Quads",
   hamstrings: "Hamstrings", calves: "Calves", glutes: "Glutes", lats: "Lats",
-  upper_back: "Upper back", lower_back: "Lower back",
+  upper_back: "Upper back", lower_back: "Lower back", traps: "Traps", neck: "Neck",
 };
 
 function renderMuscleDiagram(muscles = []) {

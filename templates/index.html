@@ -4,6 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>FitPulse — Train with intent</title>
+<meta name="description" content="FitPulse is a free fitness app with guided workout timers, a calorie/BMR/TDEE calculator, a diet tracker, and 100+ exercises across cardio, strength, and every muscle group. Train with intent.">
+<meta name="keywords" content="fitness app, workout timer, calorie calculator, BMR calculator, TDEE calculator, diet tracker, home workouts, gym exercises">
+<link rel="canonical" href="{{ request.url_root }}">
+<meta property="og:title" content="FitPulse — Train with intent">
+<meta property="og:description" content="Guided workout timers, a real calorie/BMR/TDEE calculator, a diet tracker, and 100+ exercises. Free to start.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.url_root }}">
+<!-- Paste the exact <meta name="google-site-verification" ...> tag Google
+     Search Console gives you here once you add this site as a property. -->
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 <!-- Real pose detection for the camera muscle overlay — loaded lazily, only
      used when the feature is toggled on. Runs entirely on-device. -->
@@ -66,7 +75,7 @@
       <button data-gender="male" class="active">Male</button>
       <button data-gender="female">Female</button>
     </div>
-    <input id="pf-age" class="field" type="number" placeholder="Age" min="10" max="100">
+    <input id="pf-dob" class="field" type="date" placeholder="Date of birth">
     <input id="pf-weight" class="field" type="number" placeholder="Weight (kg)" min="30" max="300">
     <input id="pf-height" class="field" type="number" placeholder="Height (cm)" min="100" max="250">
 

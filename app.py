@@ -33,7 +33,7 @@ import traceback
 from email.mime.text import MIMEText
 from datetime import datetime, timedelta, date
 
-from flask import Flask, request, jsonify, g, session
+from flask import Flask, request, jsonify, g, session, Response
 from werkzeug.security import generate_password_hash, check_password_hash
 
 try:
@@ -1082,8 +1082,12 @@ EXERCISES = {
         "items": [
             {"name": "Diamond Push-ups", "duration": 30, "rest": 25, "met": 5.5, "muscles": ["triceps", "chest"], "equipment": "Bodyweight"},
             {"name": "Tricep Dips", "duration": 35, "rest": 20, "met": 5.0, "muscles": ["triceps", "shoulders"], "equipment": "Dip station"},
-            {"name": "Cable Pushdown", "duration": 35, "rest": 15, "met": 3.2, "muscles": ["triceps"], "equipment": "Cable machine"},
+            {"name": "Cable Pushdown", "duration": 35, "rest": 15, "met": 3.2, "muscles": ["triceps"], "equipment": "Cable machine", "link": "https://www.strengthlog.com/tricep-pushdown-with-rope/"},
             {"name": "Close-Grip Push-ups", "duration": 35, "rest": 20, "met": 5.2, "muscles": ["triceps", "chest"], "equipment": "Bodyweight"},
+            {"name": "Close-Grip Bench Press", "duration": 40, "rest": 25, "met": 5.0, "muscles": ["triceps", "chest"], "equipment": "Barbell", "link": "https://www.strengthlog.com/close-grip-bench-press/"},
+            {"name": "Overhead Cable Extension", "duration": 35, "rest": 15, "met": 3.0, "muscles": ["triceps"], "equipment": "Cable machine", "link": "https://www.strengthlog.com/overhead-cable-triceps-extension/"},
+            {"name": "Skull Crushers", "duration": 35, "rest": 20, "met": 3.5, "muscles": ["triceps"], "equipment": "Barbell / EZ bar", "link": "https://www.strengthlog.com/barbell-lying-triceps-extension/"},
+            {"name": "Bench Dip", "duration": 35, "rest": 20, "met": 4.5, "muscles": ["triceps", "shoulders"], "equipment": "Bench", "link": "https://www.strengthlog.com/bench-dip/"},
         ],
     },
     "back": {
@@ -1119,28 +1123,36 @@ EXERCISES = {
         "items": [
             {"name": "Pike Push-ups", "duration": 35, "rest": 20, "met": 5.5, "muscles": ["shoulders", "triceps"], "equipment": "Bodyweight"},
             {"name": "Arm Circles", "duration": 40, "rest": 10, "met": 2.5, "muscles": ["shoulders"], "equipment": "Bodyweight"},
-            {"name": "Lateral Raise", "duration": 35, "rest": 15, "met": 3.0, "muscles": ["shoulders"], "equipment": "Cable machine / dumbbells"},
+            {"name": "Lateral Raise", "duration": 35, "rest": 15, "met": 3.0, "muscles": ["shoulders"], "equipment": "Cable machine / dumbbells", "link": "https://www.strengthlog.com/dumbbell-lateral-raise/"},
             {"name": "Smith Shoulder Press", "duration": 40, "rest": 20, "met": 4.8, "muscles": ["shoulders", "triceps"], "equipment": "Smith machine"},
+            {"name": "Overhead Press", "duration": 40, "rest": 25, "met": 5.0, "muscles": ["shoulders", "triceps"], "equipment": "Barbell", "link": "https://www.strengthlog.com/overhead-press/"},
+            {"name": "Arnold Press", "duration": 40, "rest": 20, "met": 4.6, "muscles": ["shoulders", "triceps"], "equipment": "Dumbbells", "link": "https://www.strengthlog.com/arnold-press/"},
+            {"name": "Front Raise", "duration": 35, "rest": 15, "met": 3.0, "muscles": ["shoulders"], "equipment": "Dumbbells", "link": "https://www.strengthlog.com/dumbbell-front-raise/"},
+            {"name": "Face Pull", "duration": 35, "rest": 15, "met": 3.2, "muscles": ["shoulders", "upper_back"], "equipment": "Cable machine", "link": "https://www.strengthlog.com/face-pull/"},
         ],
     },
     "traps": {
         "label": "Traps",
         "color": "#7EE8B8",
         "items": [
-            {"name": "Shrugs", "duration": 35, "rest": 15, "met": 3.0, "muscles": ["traps", "shoulders"], "equipment": "Barbell / dumbbells"},
+            {"name": "Shrugs", "duration": 35, "rest": 15, "met": 3.0, "muscles": ["traps", "shoulders"], "equipment": "Barbell / dumbbells", "link": "https://www.strengthlog.com/barbell-shrug/"},
             {"name": "Prone Y-Raises", "duration": 35, "rest": 15, "met": 3.2, "muscles": ["traps", "upper_back", "shoulders"], "equipment": "Bodyweight"},
-            {"name": "Farmer's Carry", "duration": 40, "rest": 20, "met": 4.5, "muscles": ["traps", "forearms", "abs"], "equipment": "Dumbbells / kettlebells"},
+            {"name": "Farmer's Carry", "duration": 40, "rest": 20, "met": 4.5, "muscles": ["traps", "forearms", "abs"], "equipment": "Dumbbells / kettlebells", "link": "https://www.strengthlog.com/farmers-walk/"},
             {"name": "Cable Shrug", "duration": 30, "rest": 15, "met": 3.3, "muscles": ["traps", "shoulders"], "equipment": "Cable machine"},
+            {"name": "Upright Row", "duration": 35, "rest": 20, "met": 3.6, "muscles": ["traps", "shoulders"], "equipment": "Barbell", "link": "https://www.strengthlog.com/barbell-upright-row/"},
+            {"name": "Rack Pull", "duration": 40, "rest": 30, "met": 5.0, "muscles": ["traps", "lower_back", "glutes"], "equipment": "Barbell", "link": "https://www.strengthlog.com/rack-pull/"},
         ],
     },
     "forearms": {
         "label": "Forearms",
         "color": "#A0A8FF",
         "items": [
-            {"name": "Wrist Curls", "duration": 35, "rest": 15, "met": 2.5, "muscles": ["forearms"], "equipment": "Barbell / dumbbell"},
+            {"name": "Wrist Curls", "duration": 35, "rest": 15, "met": 2.5, "muscles": ["forearms"], "equipment": "Barbell / dumbbell", "link": "https://www.strengthlog.com/barbell-wrist-curl/"},
             {"name": "Farmer's Carry Hold", "duration": 30, "rest": 20, "met": 3.5, "muscles": ["forearms", "traps"], "equipment": "Dumbbells / kettlebells"},
             {"name": "Towel Wring", "duration": 30, "rest": 10, "met": 2.2, "muscles": ["forearms"], "equipment": "Towel"},
-            {"name": "Dead Hang", "duration": 25, "rest": 30, "met": 3.0, "muscles": ["forearms", "lats", "shoulders"], "equipment": "Pull-up bar"},
+            {"name": "Dead Hang", "duration": 25, "rest": 30, "met": 3.0, "muscles": ["forearms", "lats", "shoulders"], "equipment": "Pull-up bar", "link": "https://www.strengthlog.com/bar-hang/"},
+            {"name": "Reverse Wrist Curl", "duration": 30, "rest": 15, "met": 2.3, "muscles": ["forearms"], "equipment": "Barbell / dumbbell", "link": "https://www.strengthlog.com/barbell-wrist-extension/"},
+            {"name": "Wrist Roller", "duration": 30, "rest": 20, "met": 3.0, "muscles": ["forearms"], "equipment": "Wrist roller", "link": "https://www.strengthlog.com/wrist-roller/"},
         ],
     },
     "abs": {
@@ -1149,8 +1161,12 @@ EXERCISES = {
         "items": [
             {"name": "Crunches", "duration": 40, "rest": 15, "met": 4.0, "muscles": ["abs"], "equipment": "Bodyweight"},
             {"name": "Bicycle Crunches", "duration": 35, "rest": 20, "met": 5.0, "muscles": ["abs", "obliques"], "equipment": "Bodyweight"},
-            {"name": "Cable Crunch", "duration": 40, "rest": 20, "met": 4.5, "muscles": ["abs"], "equipment": "Cable machine"},
+            {"name": "Cable Crunch", "duration": 40, "rest": 20, "met": 4.5, "muscles": ["abs"], "equipment": "Cable machine", "link": "https://www.strengthlog.com/cable-crunch/"},
             {"name": "Russian Twists", "duration": 35, "rest": 15, "met": 4.5, "muscles": ["abs", "obliques"], "equipment": "Medicine ball / bodyweight"},
+            {"name": "Hanging Leg Raise", "duration": 30, "rest": 25, "met": 5.0, "muscles": ["abs"], "equipment": "Pull-up bar", "link": "https://www.strengthlog.com/hanging-leg-raise/"},
+            {"name": "Plank", "duration": 45, "rest": 20, "met": 3.5, "muscles": ["abs", "obliques", "shoulders"], "equipment": "Bodyweight", "link": "https://www.strengthlog.com/plank/"},
+            {"name": "Side Plank", "duration": 30, "rest": 20, "met": 3.3, "muscles": ["obliques", "abs"], "equipment": "Bodyweight", "link": "https://www.strengthlog.com/side-plank/"},
+            {"name": "Ab Wheel Rollout", "duration": 30, "rest": 25, "met": 4.8, "muscles": ["abs", "shoulders"], "equipment": "Ab wheel", "link": "https://www.strengthlog.com/kneeling-ab-wheel-roll-out/"},
         ],
     },
     "legs": {
@@ -1166,6 +1182,16 @@ EXERCISES = {
             {"name": "Calf Raises", "duration": 35, "rest": 15, "met": 3.5, "muscles": ["calves"], "equipment": "Bodyweight / dumbbells"},
             {"name": "Bulgarian Split Squat", "duration": 40, "rest": 25, "met": 5.6, "muscles": ["quads", "glutes", "hamstrings"], "equipment": "Dumbbells / bodyweight"},
             {"name": "Hip Thrust", "duration": 40, "rest": 20, "met": 4.8, "muscles": ["glutes", "hamstrings"], "equipment": "Barbell / bodyweight"},
+        ],
+    },
+    "neck": {
+        "label": "Neck",
+        "color": "#D4C5F9",
+        "items": [
+            {"name": "Lying Neck Curl", "duration": 30, "rest": 20, "met": 2.0, "muscles": ["neck"], "equipment": "Bodyweight / plate", "link": "https://www.strengthlog.com/lying-neck-curl/"},
+            {"name": "Lying Neck Extension", "duration": 30, "rest": 20, "met": 2.0, "muscles": ["neck"], "equipment": "Bodyweight / plate", "link": "https://www.strengthlog.com/lying-neck-extension/"},
+            {"name": "Prone Neck Bridge", "duration": 20, "rest": 25, "met": 2.2, "muscles": ["neck"], "equipment": "Bodyweight", "link": "https://www.strengthlog.com/prone-neck-bridge/"},
+            {"name": "Supine Neck Bridge", "duration": 20, "rest": 25, "met": 2.2, "muscles": ["neck"], "equipment": "Bodyweight", "link": "https://www.strengthlog.com/supine-neck-bridge/"},
         ],
     },
 }
@@ -2033,6 +2059,30 @@ from flask import render_template
 @app.get("/")
 def index():
     return render_template("index.html", google_client_id=os.environ.get("GOOGLE_CLIENT_ID", ""))
+
+
+@app.get("/robots.txt")
+def robots_txt():
+    body = "User-agent: *\nAllow: /\n\nSitemap: " + request.url_root.rstrip("/") + "/sitemap.xml\n"
+    return Response(body, mimetype="text/plain")
+
+
+@app.get("/sitemap.xml")
+def sitemap_xml():
+    # FitPulse is a single-page app — nearly everything lives behind
+    # login-gated screens, so the only real crawlable, public URL is the
+    # homepage itself. That's honest and sufficient: it's what tells
+    # Google the site exists at all and gets it into the index.
+    base = request.url_root.rstrip("/")
+    body = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>{base}/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>"""
+    return Response(body, mimetype="application/xml")
 
 
 @app.get("/api/debug-config")
